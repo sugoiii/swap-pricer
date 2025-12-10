@@ -14,7 +14,7 @@
 #include "Pricer.hpp"
 #include <ql/utilities/dataparsers.hpp>
 #include <ql/time/calendars/target.hpp>
-#include <ql/termstructures/yield/flatforward.hpp>
+#include <ql/time/daycounters/actual365fixed.hpp>
 
 using namespace IRS;
 using namespace QuantLib;
@@ -29,46 +29,73 @@ static Period parseTenorString(const std::string& s) {
     return PeriodParser::parse(s);
 }
 
-static void buildSimpleFlatContext(
-    long valuationDateSerial,
-    double flatDiscountRate,
-    const std::vector<std::string>& tenorStrings,
-    double bumpSize,
-    PricingContext& ctx
-) {
-    ctx.valuationDate = fromSerial(valuationDateSerial);
-    Settings::instance().evaluationDate() = ctx.valuationDate;
-
-    DayCounter dc = Actual365Fixed();
-    boost::shared_ptr<YieldTermStructure> flatCurve(
-        new FlatForward(ctx.valuationDate, flatDiscountRate, dc)
-    );
-    Handle<YieldTermStructure> flatHandle(flatCurve);
-
-    ctx.curves["DISCOUNT"] = flatHandle;
-    ctx.curves["FWD_SOFR"] = flatHandle;
-    ctx.curves["FWD_KOFR"] = flatHandle;
-
-    CurveBucketConfig cfg;
-    cfg.curveId  = "DISCOUNT";
-    cfg.bumpSize = bumpSize;
-
-    for (const auto& ts : tenorStrings) {
-        TenorBucket b;
-        b.tenor = parseTenorString(ts);
-        b.date  = Date();
-        cfg.buckets.push_back(b);
+static CurveInput buildCurveInput(
+    const std::string& curveId,
+    const std::vector<long>& pillarSerials,
+    const std::vector<double>& discountRates,
+    const DayCounter& dc) {
+    if (pillarSerials.size() != discountRates.size()) {
+        QL_FAIL("Curve input size mismatch for " << curveId);
     }
 
-    ctx.bucketConfigs.push_back(cfg);
+    CurveInput input;
+    input.id = curveId;
+    input.dayCounter = dc;
+    input.discountRates = discountRates;
+    input.dates.reserve(pillarSerials.size());
+
+    for (long serial : pillarSerials) {
+        input.dates.push_back(fromSerial(serial));
+    }
+
+    return input;
+}
+
+static std::vector<long> buildPillarSerialsFromTenors(
+    const Date& valuationDate,
+    const std::vector<std::string>& tenors)
+{
+    std::vector<long> serials;
+    serials.reserve(tenors.size());
 
     Calendar cal = TARGET();
-    for (auto& c : ctx.bucketConfigs) {
-        for (auto& b : c.buckets) {
-            Date d = cal.advance(ctx.valuationDate, b.tenor, Following);
-            b.date = cal.adjust(d, Following);
-        }
+    for (const auto& tenorString : tenors) {
+        Period tenor = parseTenorString(tenorString);
+        Date d = cal.advance(valuationDate, tenor, Following);
+        serials.push_back(cal.adjust(d, Following).serialNumber());
     }
+
+    return serials;
+}
+
+static CurveBucketConfig buildBucketConfig(
+    const CurveInput& input,
+    const Date& valuationDate,
+    double bumpSize,
+    const std::vector<std::string>& tenorStrings = {})
+{
+    CurveBucketConfig cfg;
+    cfg.curveId = input.id;
+    cfg.bumpSize = bumpSize;
+
+    const bool hasTenors = tenorStrings.size() == input.dates.size();
+    Calendar cal = TARGET();
+
+    for (std::size_t i = 0; i < input.dates.size(); ++i) {
+        TenorBucket bucket;
+        bucket.date = input.dates[i];
+        if (hasTenors) {
+            bucket.tenor = parseTenorString(tenorStrings[i]);
+        } else {
+            Integer days = bucket.date - valuationDate;
+            bucket.tenor = Period(days, Days);
+        }
+        // Ensure dates remain business-adjusted to match curve pillars
+        bucket.date = cal.adjust(bucket.date, Following);
+        cfg.buckets.push_back(bucket);
+    }
+
+    return cfg;
 }
 
 static void buildSimpleFixedVsKOFRSwap(
@@ -113,22 +140,40 @@ int main(int argc, char** argv) {
         long valuationDateSerial = 80000;     // arbitrary QuantLib date
         long startDateSerial     = 80001;
         long endDateSerial       = 80000 + 365 * 5; // ~5Y
-        double flatRate          = 0.03;
         double notional          = 1000000.0;
         double fixedRate         = 0.032;
 
-        PricingContext ctx;
+        DayCounter dc = Actual365Fixed();
+        Date valuationDate = fromSerial(valuationDateSerial);
+        Settings::instance().evaluationDate() = valuationDate;
+
         std::vector<std::string> tenors = {
             "1M", "3M", "6M", "1Y", "2Y", "3Y"
         };
-        double bumpSize = 0.0001;
 
-        buildSimpleFlatContext(
-            valuationDateSerial,
-            flatRate,
-            tenors,
-            bumpSize,
-            ctx
+        // Sample curve data; replace with real user input or CLI parsing as needed
+        std::vector<long> discountPillars = buildPillarSerialsFromTenors(valuationDate, tenors);
+        std::vector<double> discountRates = {0.0295, 0.02975, 0.0300, 0.0305, 0.0315, 0.0325};
+
+        std::vector<long> sofrPillars = discountPillars;
+        std::vector<double> sofrRates  = {0.0280, 0.0285, 0.02875, 0.0290, 0.02975, 0.0305};
+
+        std::vector<long> kofrPillars = discountPillars;
+        std::vector<double> kofrRates  = {0.02825, 0.0286, 0.0289, 0.0291, 0.02985, 0.0306};
+
+        CurveInput discountCurve = buildCurveInput("DISCOUNT", discountPillars, discountRates, dc);
+        CurveInput sofrCurve     = buildCurveInput("FWD_SOFR", sofrPillars, sofrRates, dc);
+        CurveInput kofrCurve     = buildCurveInput("FWD_KOFR", kofrPillars, kofrRates, dc);
+
+        PricingContext ctx;
+        ctx.valuationDate = valuationDate;
+        ctx.curves[discountCurve.id] = buildZeroCurve(discountCurve);
+        ctx.curves[sofrCurve.id]     = buildZeroCurve(sofrCurve);
+        ctx.curves[kofrCurve.id]     = buildZeroCurve(kofrCurve);
+
+        double bumpSize = 0.0001;
+        ctx.bucketConfigs.push_back(
+            buildBucketConfig(discountCurve, valuationDate, bumpSize, tenors)
         );
 
         IRSwapSpec spec;
