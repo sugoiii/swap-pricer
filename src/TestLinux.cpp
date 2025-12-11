@@ -57,13 +57,13 @@ static std::vector<Date> parseHolidayArgs(int argc, char** argv) {
 
     if (holidays.empty()) {
         // Default Swiss holidays for KOFR/CHF testing
-        holidays.push_back(Date(1, January, 2024));
-        holidays.push_back(Date(29, March, 2024));  // Good Friday
-        holidays.push_back(Date(1, April, 2024));   // Easter Monday
-        holidays.push_back(Date(9, May, 2024));     // Ascension
-        holidays.push_back(Date(20, May, 2024));    // Whit Monday
-        holidays.push_back(Date(25, December, 2024));
-        holidays.push_back(Date(26, December, 2024));
+        holidays.push_back(Date(1, January, 2025));
+        holidays.push_back(Date(29, March, 2025));  // Good Friday
+        holidays.push_back(Date(1, April, 2025));   // Easter Monday
+        holidays.push_back(Date(9, May, 2025));     // Ascension
+        holidays.push_back(Date(20, May, 2025));    // Whit Monday
+        holidays.push_back(Date(25, December, 2025));
+        holidays.push_back(Date(26, December, 2025));
     }
 
     return holidays;
@@ -71,10 +71,10 @@ static std::vector<Date> parseHolidayArgs(int argc, char** argv) {
 
 static CurveInput buildCurveInput(
     const std::string& curveId,
-    const std::vector<long>& pillarSerials,
+    const std::vector<TenorBucket>& tenorBuckets,
     const std::vector<double>& discountRates,
     const DayCounter& dc) {
-    if (pillarSerials.size() != discountRates.size()) {
+    if (tenorBuckets.size() != discountRates.size()) {
         QL_FAIL("Curve input size mismatch for " << curveId);
     }
 
@@ -82,10 +82,12 @@ static CurveInput buildCurveInput(
     input.id = curveId;
     input.dayCounter = dc;
     input.discountRates = discountRates;
-    input.dates.reserve(pillarSerials.size());
+    input.dates.reserve(tenorBuckets.size());
+    input.tenors.reserve(tenorBuckets.size());
 
-    for (long serial : pillarSerials) {
-        input.dates.push_back(fromSerial(serial));
+    for (auto bucket : tenorBuckets) {
+        input.dates.push_back(bucket.date);
+        input.tenors.push_back(bucket.tenor);
     }
 
     return input;
@@ -107,6 +109,26 @@ static std::vector<long> buildPillarSerialsFromTenors(
 
     return serials;
 }
+
+static std::vector<TenorBucket> buildTenorBucketsFromTenors(
+    const Date& valuationDate,
+    const std::vector<std::string>& tenors,
+    const Calendar& calendar)
+{
+    std::vector<TenorBucket> tenorBuckets;
+    tenorBuckets.reserve(tenors.size());
+
+    // TODO - Day Convention 제대로 설정.
+    for (const auto& tenorString : tenors) {
+        Period tenor = parseTenorString(tenorString);
+        Date d = calendar.advance(valuationDate, tenor, Following);
+        tenorBuckets.push_back({tenor, calendar.adjust(d, Following)});
+        std::cout << tenorBuckets.back().date << std::endl;
+    }
+
+    return tenorBuckets;
+}
+
 
 static CurveBucketConfig buildBucketConfig(
     const CurveInput& input,
@@ -147,8 +169,8 @@ static void buildSimpleFixedVsKOFRSwap(
     IRSwapSpec& spec
 ) {
     spec.valuationDateSerial = valuationDateSerial;
-    spec.discountCurveId     = "DISCOUNT";
-    spec.valuationCurveId    = "DISCOUNT";
+    spec.discountCurveId     = "FWD_KOFR";
+    spec.valuationCurveId    = "FWD_KOFR";
 
     spec.leg1.type             = LegType::Fixed;
     spec.leg1.payReceive       = PayReceive::Payer;
@@ -176,11 +198,10 @@ static void buildSimpleFixedVsKOFRSwap(
 
 int main(int argc, char** argv) {
     try {
-        // Just some toy params; you can parse from argv if you want.
-        long valuationDateSerial = 80000;     // arbitrary QuantLib date
-        long startDateSerial     = 80001;
-        long endDateSerial       = 80000 + 365 * 5; // ~5Y
-        double notional          = 1000000.0;
+        long valuationDateSerial = 45681;     // arbitrary QuantLib date
+        long startDateSerial     = 45682;
+        long endDateSerial       = startDateSerial + 365 * 5; // ~5Y
+        double notional          = 10000000.0;
         double fixedRate         = 0.032;
 
         DayCounter dc = Actual365Fixed();
@@ -192,34 +213,32 @@ int main(int argc, char** argv) {
         ctx.valuationDate = ctx.calendar.adjust(valuationDate);
         Settings::instance().evaluationDate() = ctx.valuationDate;
 
-        std::vector<std::string> tenors = {
+        std::vector<std::string> tenorStrs = {
             "1M", "3M", "6M", "1Y", "2Y", "3Y"
         };
 
         // Sample curve data; replace with real user input or CLI parsing as needed
-        std::vector<long> discountPillars = buildPillarSerialsFromTenors(ctx.valuationDate, tenors, ctx.calendar);
+        std::vector<TenorBucket> discountTenorBuckets = buildTenorBucketsFromTenors(ctx.valuationDate, tenorStrs, ctx.calendar);
         std::vector<double> discountRates = {0.0295, 0.02975, 0.0300, 0.0305, 0.0315, 0.0325};
 
-        std::vector<long> sofrPillars = discountPillars;
-        std::vector<double> sofrRates  = {0.0280, 0.0285, 0.02875, 0.0290, 0.02975, 0.0305};
-
-        std::vector<long> kofrPillars = discountPillars;
         std::vector<double> kofrRates  = {0.02825, 0.0286, 0.0289, 0.0291, 0.02985, 0.0306};
 
-        CurveInput discountCurve = buildCurveInput("DISCOUNT", discountPillars, discountRates, dc);
-        CurveInput sofrCurve     = buildCurveInput("FWD_SOFR", sofrPillars, sofrRates, dc);
-        CurveInput kofrCurve     = buildCurveInput("FWD_KOFR", kofrPillars, kofrRates, dc);
+        // CurveInput discountCurve = buildCurveInput("DISCOUNT", discountPillars, discountRates, dc);
+        // CurveInput sofrCurve     = buildCurveInput("FWD_SOFR", sofrPillars, sofrRates, dc);
+        CurveInput kofrCurve     = buildCurveInput("FWD_KOFR", discountTenorBuckets, kofrRates, dc);
 
-        ctx.curves[discountCurve.id] = buildZeroCurve(discountCurve, ctx.calendar);
-        ctx.curves[sofrCurve.id]     = buildZeroCurve(sofrCurve, ctx.calendar);
+
+        // ctx.curves[discountCurve.id] = buildZeroCurve(discountCurve, ctx.calendar);
+        // ctx.curves[sofrCurve.id]     = buildZeroCurve(sofrCurve, ctx.calendar);
         ctx.curves[kofrCurve.id]     = buildZeroCurve(kofrCurve, ctx.calendar);
 
         double bumpSize = 0.0001;
         ctx.bucketConfigs.push_back(
-            buildBucketConfig(discountCurve, ctx.valuationDate, bumpSize, ctx.calendar, tenors)
+            buildBucketConfig(kofrCurve, ctx.valuationDate, bumpSize, ctx.calendar, tenorStrs)
         );
 
         IRSwapSpec spec;
+
         buildSimpleFixedVsKOFRSwap(
             valuationDateSerial,
             notional,

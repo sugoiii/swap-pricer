@@ -27,6 +27,7 @@ namespace IRS {
     struct CurveInput {
         std::string id;
         std::vector<QuantLib::Date> dates;
+        std::vector<QuantLib::Period> tenors;
         std::vector<double> discountRates;
         QuantLib::DayCounter dayCounter;
     };
@@ -43,6 +44,7 @@ namespace IRS {
         std::unordered_map<std::string,
             boost::shared_ptr<QuantLib::InterestRateIndex>> indices;
 
+        // TODO - 이거 어디다가 쓰이긴 하냐?
         std::vector<CurveBucketConfig> bucketConfigs;
 
         // convenience lookup
