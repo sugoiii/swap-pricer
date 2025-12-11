@@ -23,12 +23,13 @@ namespace IRS {
 
     private:
         double npvInternal(const IRSwapSpec &spec, const PricingContext& ctx) const;
-    
+
         QuantLib::Leg buildLeg(const LegSpec& legSpec,
                                const PricingContext& ctx,
                                const QuantLib::Date& valuationDate) const;
-        
-        QuantLib::Calendar resolveCalendar(const std::string& indexName) const;
+
+        QuantLib::Calendar resolveCalendar(const std::string& indexName,
+                                           const PricingContext& ctx) const;
         QuantLib::DayCounter mapDayCount(DayCount dc) const;
         QuantLib::BusinessDayConvention mapBDC(BusinessDayConv bdc) const;
         QuantLib::Frequency mapFrequency(Frequency f) const;

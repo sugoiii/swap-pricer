@@ -17,8 +17,12 @@ namespace IRS {
 
     using namespace QuantLib;
 
-    Calendar IRSwapPricer::resolveCalendar(const std::string& indexName) const {
-        // Extend LATER -> 
+    Calendar IRSwapPricer::resolveCalendar(const std::string& indexName, const PricingContext& ctx) const {
+        if (!ctx.calendar.empty()) {
+            return ctx.calendar;
+        }
+
+        // Extend LATER ->
 
         // TODO - SouthKorea가 아닌 실제 휴일 정보 받아서 캘린더 만들기.
         if ((indexName == "KOFR") || (indexName=="CD")) {
@@ -70,7 +74,7 @@ namespace IRS {
         // 2) Otherwise create a basic one from curves
         // in prod -> should have proper mapping: indexName -> curveId
         QuantLib::Handle<QuantLib::YieldTermStructure> fwdCurve = ctx.discountCurve("FWD_" + floatSpec.indexName);
-        Calendar cal = resolveCalendar(floatSpec.indexName);
+        Calendar cal = resolveCalendar(floatSpec.indexName, ctx);
         DayCounter dc = Actual365Fixed(); // 왜 얘는 이거 고정으로 쓰냐?
 
         if (floatSpec.indexName == "CD") {
@@ -96,7 +100,7 @@ namespace IRS {
         // 2) Otherwise create a basic one from curves
         // in prod -> should have proper mapping: indexName -> curveId
         QuantLib::Handle<QuantLib::YieldTermStructure> fwdCurve = ctx.discountCurve("FWD_" + floatSpec.indexName);
-        Calendar cal = resolveCalendar(floatSpec.indexName);
+        Calendar cal = resolveCalendar(floatSpec.indexName, ctx);
         DayCounter dc = Actual365Fixed(); // 왜 얘는 이거 고정으로 쓰냐?
 
         if (floatSpec.indexName == "KOFR") {
