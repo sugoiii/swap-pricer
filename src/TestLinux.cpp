@@ -6,6 +6,8 @@
 #include <iostream>
 #include <vector>
 #include <string>
+#include <algorithm>
+#include <cctype>
 
 
 #include "SwapTypes.hpp"
@@ -27,6 +29,44 @@ static Date fromSerial(long s) {
 
 static Period parseTenorString(const std::string& s) {
     return PeriodParser::parse(s);
+}
+
+static Date parseHoliday(const std::string& token) {
+    const bool allDigits = std::all_of(token.begin(), token.end(), [](char c) { return std::isdigit(c); });
+    if (allDigits) {
+        return Date(std::stol(token));
+    }
+
+    return DateParser::parseISO(token);
+}
+
+static std::vector<Date> parseHolidayArgs(int argc, char** argv) {
+    std::vector<Date> holidays;
+
+    for (int i = 1; i < argc; ++i) {
+        const std::string token(argv[i]);
+        if (token.rfind("--holiday=", 0) == 0) {
+            holidays.push_back(parseHoliday(token.substr(std::string("--holiday=").size())));
+        } else if (token == "--help") {
+            std::cout
+                << "Usage: " << argv[0] << " [--holiday=YYYY-MM-DD|SERIAL]..." << "\n"
+                << "Provide QuantLib serials or ISO dates for holidays.\n";
+            std::exit(0);
+        }
+    }
+
+    if (holidays.empty()) {
+        // Default Swiss holidays for KOFR/CHF testing
+        holidays.push_back(Date(1, January, 2024));
+        holidays.push_back(Date(29, March, 2024));  // Good Friday
+        holidays.push_back(Date(1, April, 2024));   // Easter Monday
+        holidays.push_back(Date(9, May, 2024));     // Ascension
+        holidays.push_back(Date(20, May, 2024));    // Whit Monday
+        holidays.push_back(Date(25, December, 2024));
+        holidays.push_back(Date(26, December, 2024));
+    }
+
+    return holidays;
 }
 
 static CurveInput buildCurveInput(
@@ -146,7 +186,7 @@ int main(int argc, char** argv) {
         DayCounter dc = Actual365Fixed();
         Date valuationDate = fromSerial(valuationDateSerial);
 
-        std::vector<Date> holidays;
+        std::vector<Date> holidays = parseHolidayArgs(argc, argv);
         PricingContext ctx;
         ctx.calendar = buildCalendar(holidays);
         ctx.valuationDate = ctx.calendar.adjust(valuationDate);
