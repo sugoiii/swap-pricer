@@ -11,7 +11,17 @@ namespace IRS {
 
     using namespace QuantLib;
 
-    Handle<YieldTermStructure> buildZeroCurve(const CurveInput& input) {
+    Calendar buildCalendar(const std::vector<Date>& holidays) {
+        Calendar calendar = TARGET();
+
+        for (const auto& holiday : holidays) {
+            calendar.addHoliday(holiday);
+        }
+
+        return calendar;
+    }
+
+    Handle<YieldTermStructure> buildZeroCurve(const CurveInput& input, const Calendar& calendar) {
         if (input.dates.size() != input.discountRates.size()) {
             QL_FAIL("Curve input dates/discountRates size mismatch for " << input.id);
         }
@@ -40,7 +50,6 @@ namespace IRS {
             zeroRates.push_back(pillar.second);
         }
 
-        Calendar calendar = TARGET();
         if (Settings::instance().evaluationDate() == Date()) {
             Settings::instance().evaluationDate() = calendar.adjust(dates.front());
         }

@@ -44,7 +44,9 @@ static void buildSimpleFlatContext(
     double bumpSize,                              // e.g. 0.0001
     PricingContext &ctx)
 {
-    ctx.valuationDate = fromExcelSerial(valuationDateSerial);
+    std::vector<Date> holidays;
+    ctx.calendar = buildCalendar(holidays);
+    ctx.valuationDate = ctx.calendar.adjust(fromExcelSerial(valuationDateSerial));
     Settings::instance().evaluationDate() = ctx.valuationDate;
 
     DayCounter dc = Actual365Fixed();
@@ -70,7 +72,7 @@ static void buildSimpleFlatContext(
 
     ctx.bucketConfigs.push_back(cfg);
 
-    Calendar cal = TARGET();
+    const Calendar &cal = ctx.calendar;
 
     for (auto &c : ctx.bucketConfigs)
     {

@@ -53,16 +53,16 @@ static CurveInput buildCurveInput(
 
 static std::vector<long> buildPillarSerialsFromTenors(
     const Date& valuationDate,
-    const std::vector<std::string>& tenors)
+    const std::vector<std::string>& tenors,
+    const Calendar& calendar)
 {
     std::vector<long> serials;
     serials.reserve(tenors.size());
 
-    Calendar cal = TARGET();
     for (const auto& tenorString : tenors) {
         Period tenor = parseTenorString(tenorString);
-        Date d = cal.advance(valuationDate, tenor, Following);
-        serials.push_back(cal.adjust(d, Following).serialNumber());
+        Date d = calendar.advance(valuationDate, tenor, Following);
+        serials.push_back(calendar.adjust(d, Following).serialNumber());
     }
 
     return serials;
@@ -72,6 +72,7 @@ static CurveBucketConfig buildBucketConfig(
     const CurveInput& input,
     const Date& valuationDate,
     double bumpSize,
+    const Calendar& calendar,
     const std::vector<std::string>& tenorStrings = {})
 {
     CurveBucketConfig cfg;
@@ -79,7 +80,6 @@ static CurveBucketConfig buildBucketConfig(
     cfg.bumpSize = bumpSize;
 
     const bool hasTenors = tenorStrings.size() == input.dates.size();
-    Calendar cal = TARGET();
 
     for (std::size_t i = 0; i < input.dates.size(); ++i) {
         TenorBucket bucket;
@@ -91,7 +91,7 @@ static CurveBucketConfig buildBucketConfig(
             bucket.tenor = Period(days, Days);
         }
         // Ensure dates remain business-adjusted to match curve pillars
-        bucket.date = cal.adjust(bucket.date, Following);
+        bucket.date = calendar.adjust(bucket.date, Following);
         cfg.buckets.push_back(bucket);
     }
 
@@ -145,14 +145,19 @@ int main(int argc, char** argv) {
 
         DayCounter dc = Actual365Fixed();
         Date valuationDate = fromSerial(valuationDateSerial);
-        Settings::instance().evaluationDate() = valuationDate;
+
+        std::vector<Date> holidays;
+        PricingContext ctx;
+        ctx.calendar = buildCalendar(holidays);
+        ctx.valuationDate = ctx.calendar.adjust(valuationDate);
+        Settings::instance().evaluationDate() = ctx.valuationDate;
 
         std::vector<std::string> tenors = {
             "1M", "3M", "6M", "1Y", "2Y", "3Y"
         };
 
         // Sample curve data; replace with real user input or CLI parsing as needed
-        std::vector<long> discountPillars = buildPillarSerialsFromTenors(valuationDate, tenors);
+        std::vector<long> discountPillars = buildPillarSerialsFromTenors(ctx.valuationDate, tenors, ctx.calendar);
         std::vector<double> discountRates = {0.0295, 0.02975, 0.0300, 0.0305, 0.0315, 0.0325};
 
         std::vector<long> sofrPillars = discountPillars;
@@ -165,15 +170,13 @@ int main(int argc, char** argv) {
         CurveInput sofrCurve     = buildCurveInput("FWD_SOFR", sofrPillars, sofrRates, dc);
         CurveInput kofrCurve     = buildCurveInput("FWD_KOFR", kofrPillars, kofrRates, dc);
 
-        PricingContext ctx;
-        ctx.valuationDate = valuationDate;
-        ctx.curves[discountCurve.id] = buildZeroCurve(discountCurve);
-        ctx.curves[sofrCurve.id]     = buildZeroCurve(sofrCurve);
-        ctx.curves[kofrCurve.id]     = buildZeroCurve(kofrCurve);
+        ctx.curves[discountCurve.id] = buildZeroCurve(discountCurve, ctx.calendar);
+        ctx.curves[sofrCurve.id]     = buildZeroCurve(sofrCurve, ctx.calendar);
+        ctx.curves[kofrCurve.id]     = buildZeroCurve(kofrCurve, ctx.calendar);
 
         double bumpSize = 0.0001;
         ctx.bucketConfigs.push_back(
-            buildBucketConfig(discountCurve, valuationDate, bumpSize, tenors)
+            buildBucketConfig(discountCurve, ctx.valuationDate, bumpSize, ctx.calendar, tenors)
         );
 
         IRSwapSpec spec;

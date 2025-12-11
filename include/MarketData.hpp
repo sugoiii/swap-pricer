@@ -5,6 +5,7 @@
 #include <memory>
 #include <unordered_map>
 #include <ql/time/date.hpp>
+#include <ql/time/calendar.hpp>
 #include <ql/time/daycounter.hpp>
 #include <ql/time/period.hpp>
 #include <ql/termstructures/yieldtermstructure.hpp>
@@ -32,6 +33,7 @@ namespace IRS {
 
     struct PricingContext {
         QuantLib::Date valuationDate;
+        QuantLib::Calendar calendar;
 
         // Curve handles keyed by id
         std::unordered_map<std::string,
@@ -51,8 +53,10 @@ namespace IRS {
             }
             return it->second;
         }
-        
+
     };
 
-    QuantLib::Handle<QuantLib::YieldTermStructure> buildZeroCurve(const CurveInput& input);
+    QuantLib::Calendar buildCalendar(const std::vector<QuantLib::Date>& holidays);
+    QuantLib::Handle<QuantLib::YieldTermStructure> buildZeroCurve(const CurveInput& input,
+                                                                 const QuantLib::Calendar& calendar);
 }
