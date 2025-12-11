@@ -37,14 +37,31 @@ static Period parseTenorString(const std::string &s)
     return PeriodParser::parse(s);
 }
 
+static std::vector<Date> toHolidayDates(const double *holidaySerials, int holidayCount)
+{
+    std::vector<Date> holidays;
+    if (!holidaySerials || holidayCount <= 0)
+    {
+        return holidays;
+    }
+
+    holidays.reserve(static_cast<std::size_t>(holidayCount));
+    for (int i = 0; i < holidayCount; ++i)
+    {
+        holidays.push_back(fromExcelSerial(holidaySerials[i]));
+    }
+
+    return holidays;
+}
+
 static void buildSimpleFlatContext(
     double valuationDateSerial,
     double flatDiscountRate,
     const std::vector<std::string> &tenorStrings, // e.g. {"1M","3M","6M","1Y"}
     double bumpSize,                              // e.g. 0.0001
+    const std::vector<Date> &holidays,
     PricingContext &ctx)
 {
-    std::vector<Date> holidays;
     ctx.calendar = buildCalendar(holidays);
     ctx.valuationDate = ctx.calendar.adjust(fromExcelSerial(valuationDateSerial));
     Settings::instance().evaluationDate() = ctx.valuationDate;
@@ -133,19 +150,23 @@ extern "C" __declspec(dllexport) double __stdcall IRS_NPV_SIMPLE_FIXED_FLOAT(
     double notional,
     double fixedRate,
     double startDateSerial,
-    double endDateSerial)
+    double endDateSerial,
+    const double *holidaySerials,
+    int holidayCount)
 {
     try
     {
         PricingContext ctx;
         std::vector<std::string> tenors = {"1M", "3M", "6M", "1Y", "2Y", "5Y"};
         double bumpSize = 0.0001;
+        std::vector<Date> holidays = toHolidayDates(holidaySerials, holidayCount);
 
         buildSimpleFlatContext(
             valuationDateSerial,
             flatDiscountRate,
             tenors,
             bumpSize,
+            holidays,
             ctx);
 
         IRSwapSpec spec;
@@ -178,19 +199,23 @@ extern "C" __declspec(dllexport) void __stdcall IRS_BUCKETED_DELTA_SIMPLE_FIXED_
     double *outPillarSerials,
     double *outDeltas,
     int maxBuckets,
-    int *outUsedBuckets)
+    int *outUsedBuckets,
+    const double *holidaySerials,
+    int holidayCount)
 {
     try
     {
         PricingContext ctx;
         std::vector<std::string> tenors = {"1M", "3M", "6M", "1Y", "2Y", "5Y"};
         double bumpSize = 0.0001;
+        std::vector<Date> holidays = toHolidayDates(holidaySerials, holidayCount);
 
         buildSimpleFlatContext(
             valuationDateSerial,
             flatDiscountRate,
             tenors,
             bumpSize,
+            holidays,
             ctx);
 
         IRSwapSpec spec;
