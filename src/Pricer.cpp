@@ -108,8 +108,6 @@ namespace IRS {
     };
 
     Leg IRSwapPricer::buildLeg(const LegSpec& legSpec, const PricingContext& ctx, const Date& valuationDate) const {
-        Calendar cal;
-
         // Convert Excel serials to Quantlib Date
         Date startDate = Date(legSpec.startDateSerial);
         Date endDate = Date(legSpec.endDateSerial);
@@ -120,7 +118,7 @@ namespace IRS {
 
         // schedule
         // TODO - Forward vs Backward
-        Schedule schedule(startDate, endDate, Period(freq), TARGET(), bdc, bdc, DateGeneration::Backward, false);
+        Schedule schedule(startDate, endDate, Period(freq), ctx.calendar, bdc, bdc, DateGeneration::Backward, false);
 
         Leg leg;
 
