@@ -189,6 +189,7 @@ static void buildSimpleFixedVsKOFRSwap(
     spec.valuationDateSerial = valuationDateSerial;
     spec.discountCurveId = "FWD_KOFR";
     spec.valuationCurveId = "FWD_KOFR";
+    spec.swapType = SwapType::OvernightIndexed;
 
     spec.leg1.type = LegType::Fixed;
     spec.leg1.payReceive = PayReceive::Payer;
@@ -225,6 +226,7 @@ static void buildSimpleFixedVsCDSwap(
     spec.valuationDateSerial = valuationDateSerial;
     spec.discountCurveId = "FWD_CD";
     spec.valuationCurveId = "FWD_CD";
+    spec.swapType = SwapType::Vanilla;
 
     spec.leg1.type = LegType::Fixed;
     spec.leg1.payReceive = PayReceive::Payer;
