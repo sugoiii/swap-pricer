@@ -118,6 +118,7 @@ static void buildSimpleFixedVsSOFRSwap(
     spec.valuationDateSerial = static_cast<long>(valuationDateSerial);
     spec.discountCurveId = "DISCOUNT";
     spec.valuationCurveId = "DISCOUNT";
+    spec.swapType = SwapType::OvernightIndexed;
 
     spec.leg1.type = LegType::Fixed;
     spec.leg1.payReceive = PayReceive::Payer;

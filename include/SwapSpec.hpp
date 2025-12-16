@@ -4,6 +4,7 @@
 namespace IRS {
 
     struct IRSwapSpec {
+        SwapType swapType;
         LegSpec leg1;
         LegSpec leg2;
 

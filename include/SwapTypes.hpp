@@ -4,6 +4,11 @@
 
 namespace IRS {
 
+    enum class SwapType {
+        Vanilla,
+        OvernightIndexed
+    };
+
     enum class LegType {
         Fixed,
         Ibor,

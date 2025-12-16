@@ -8,7 +8,8 @@
 #include <ql/cashflows/fixedratecoupon.hpp>
 #include <ql/cashflows/iborcoupon.hpp>
 #include <ql/cashflows/overnightindexedcoupon.hpp>
-#include <ql/instruments/swap.hpp>
+#include <ql/instruments/overnightindexedswap.hpp>
+#include <ql/instruments/vanillaswap.hpp>
 #include <ql/pricingengines/swap/discountingswapengine.hpp>
 #include <ql/termstructures/yield/zerocurve.hpp>
 #include <iostream>
@@ -229,24 +230,106 @@ namespace IRS
         Date valDate = Date(spec.valuationDateSerial);
         Settings::instance().evaluationDate() = valDate;
 
-        // Build Legs
-        Leg leg1 = buildLeg(spec.leg1, ctx, valDate);
-        Leg leg2 = buildLeg(spec.leg2, ctx, valDate);
-
-        std::vector<Leg> legs{leg1, leg2};
-        std::vector<bool> payerFlags{
-            spec.leg1.payReceive == PayReceive::Payer,
-            spec.leg2.payReceive == PayReceive::Payer};
-
-        Swap swap(legs, payerFlags);
-
         Handle<YieldTermStructure> disc = ctx.discountCurve(spec.discountCurveId);
 
         boost::shared_ptr<PricingEngine> engine(
             new DiscountingSwapEngine(disc));
-        swap.setPricingEngine(engine);
 
-        return swap.NPV();
+        auto buildSchedule = [&](const LegSpec &legSpec) {
+            BusinessDayConvention bdc = mapBDC(legSpec.tenor.bdc);
+            QuantLib::Frequency freq = mapFrequency(legSpec.tenor.frequency);
+
+            return Schedule(Date(legSpec.startDateSerial),
+                            Date(legSpec.endDateSerial),
+                            Period(freq),
+                            ctx.calendar,
+                            bdc,
+                            bdc,
+                            DateGeneration::Backward,
+                            false);
+        };
+
+        switch (spec.swapType)
+        {
+        case SwapType::Vanilla:
+        {
+            const bool leg1Fixed = spec.leg1.type == LegType::Fixed;
+            const bool leg2Fixed = spec.leg2.type == LegType::Fixed;
+            const bool leg1Ibor = spec.leg1.type == LegType::Ibor;
+            const bool leg2Ibor = spec.leg2.type == LegType::Ibor;
+
+            const bool validFixedFloat = (leg1Fixed && leg2Ibor) || (leg2Fixed && leg1Ibor);
+            QL_REQUIRE(validFixedFloat, "Vanilla swap requires one fixed leg and one Ibor leg");
+
+            const LegSpec &fixedSpec = leg1Fixed ? spec.leg1 : spec.leg2;
+            const LegSpec &floatSpec = leg1Fixed ? spec.leg2 : spec.leg1;
+
+            Schedule fixedSchedule = buildSchedule(fixedSpec);
+            Schedule floatSchedule = buildSchedule(floatSpec);
+
+            DayCounter fixedDc = mapDayCount(fixedSpec.tenor.daycount);
+            auto floatIndex = resolveIborIndex(floatSpec.floating, ctx);
+
+            VanillaSwap::Type swapType =
+                fixedSpec.payReceive == PayReceive::Payer ? VanillaSwap::Payer : VanillaSwap::Receiver;
+
+            VanillaSwap vanillaSwap(
+                swapType,
+                fixedSpec.notional,
+                fixedSchedule,
+                fixedSpec.fixed.fixedRate,
+                fixedDc,
+                floatSchedule,
+                floatIndex,
+                floatSpec.floating.spread,
+                floatIndex->dayCounter());
+
+            vanillaSwap.setPricingEngine(engine);
+            return vanillaSwap.NPV();
+        }
+
+        case SwapType::OvernightIndexed:
+        {
+            const bool leg1Fixed = spec.leg1.type == LegType::Fixed;
+            const bool leg2Fixed = spec.leg2.type == LegType::Fixed;
+            const bool leg1ON = spec.leg1.type == LegType::Overnight;
+            const bool leg2ON = spec.leg2.type == LegType::Overnight;
+
+            const bool validFixedOn = (leg1Fixed && leg2ON) || (leg2Fixed && leg1ON);
+            QL_REQUIRE(validFixedOn, "Overnight indexed swap requires one fixed leg and one overnight leg");
+
+            const LegSpec &fixedSpec = leg1Fixed ? spec.leg1 : spec.leg2;
+            const LegSpec &onSpec = leg1Fixed ? spec.leg2 : spec.leg1;
+
+            Schedule fixedSchedule = buildSchedule(fixedSpec);
+            Schedule onSchedule = buildSchedule(onSpec);
+
+            DayCounter fixedDc = mapDayCount(fixedSpec.tenor.daycount);
+            auto onIndex = resolveOvernightIndex(onSpec.floating, ctx);
+
+            OvernightIndexedSwap::Type swapType =
+                fixedSpec.payReceive == PayReceive::Payer ? OvernightIndexedSwap::Payer : OvernightIndexedSwap::Receiver;
+
+            OvernightIndexedSwap ois(
+                swapType,
+                fixedSpec.notional,
+                fixedSchedule,
+                fixedSpec.fixed.fixedRate,
+                fixedDc,
+                onSchedule,
+                onIndex,
+                onSpec.floating.spread,
+                0,
+                mapBDC(onSpec.tenor.bdc),
+                DateGeneration::Backward,
+                onSpec.floating.isCompounded ? OvernightIndexedSwap::Compound : OvernightIndexedSwap::Simple);
+
+            ois.setPricingEngine(engine);
+            return ois.NPV();
+        }
+        }
+
+        QL_FAIL("Unsupported swap type");
     }
 
     PriceResult IRSwapPricer::price(const IRSwapSpec &spec, const PricingContext &ctx) const
@@ -314,6 +397,8 @@ namespace IRS
                 result.bucketedDeltas.push_back(bd);
             }
         }
+
+        return result;
     }
 
 }
