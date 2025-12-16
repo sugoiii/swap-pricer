@@ -235,7 +235,8 @@ namespace IRS
         boost::shared_ptr<PricingEngine> engine(
             new DiscountingSwapEngine(disc));
 
-        auto buildSchedule = [&](const LegSpec &legSpec) {
+        auto buildSchedule = [&](const LegSpec &legSpec)
+        {
             BusinessDayConvention bdc = mapBDC(legSpec.tenor.bdc);
             QuantLib::Frequency freq = mapFrequency(legSpec.tenor.frequency);
 
@@ -321,8 +322,7 @@ namespace IRS
                 onSpec.floating.spread,
                 0,
                 mapBDC(onSpec.tenor.bdc),
-                DateGeneration::Backward,
-                onSpec.floating.isCompounded ? OvernightIndexedSwap::Compound : OvernightIndexedSwap::Simple);
+                ctx.calendar);
 
             ois.setPricingEngine(engine);
             return ois.NPV();
@@ -354,8 +354,8 @@ namespace IRS
             std::vector<Date> dates;
             std::vector<Rate> zeroRates;
 
-            dates.reserve(cfg.buckets.size()+1);
-            zeroRates.reserve(cfg.buckets.size()+1);
+            dates.reserve(cfg.buckets.size() + 1);
+            zeroRates.reserve(cfg.buckets.size() + 1);
 
             dates.push_back(baseCurve->referenceDate());
             Rate zr = baseCurve->zeroRate(baseCurve->referenceDate(), baseCurve->dayCounter(), Continuous).rate();

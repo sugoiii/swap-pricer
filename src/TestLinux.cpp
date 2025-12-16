@@ -16,6 +16,7 @@
 #include <ql/utilities/dataparsers.hpp>
 #include <ql/time/calendars/target.hpp>
 #include <ql/time/daycounters/actual365fixed.hpp>
+#include <iomanip>
 
 using namespace IRS;
 using namespace QuantLib;
@@ -250,7 +251,6 @@ static void buildSimpleFixedVsCDSwap(
     spec.leg2.floating.fixingDays = 0;
     spec.leg2.floating.spread = 0.0;
     spec.leg2.floating.isCompounded = false; // TODO -
-    
 }
 
 int main(int argc, char **argv)
@@ -319,7 +319,7 @@ int main(int argc, char **argv)
 
         IRSwapPricer pricer;
         PriceResult res = pricer.price(spec, ctx);
-
+        std::cout << std::setiosflags(std::ios_base::fixed) << std::endl;
         std::cout << "NPV: " << res.npv << "\n";
 
         std::cout << "Bucketed deltas:\n";
