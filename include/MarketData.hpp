@@ -44,6 +44,10 @@ namespace IRS {
         std::unordered_map<std::string,
             boost::shared_ptr<QuantLib::InterestRateIndex>> indices;
 
+        // Fixings keyed by index name
+        std::unordered_map<std::string,
+            std::vector<std::pair<QuantLib::Date, double>>> indexFixings;
+
         // TODO - 이거 어디다가 쓰이긴 하냐?
         std::vector<CurveBucketConfig> bucketConfigs;
 

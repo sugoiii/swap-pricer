@@ -232,6 +232,10 @@ int main(int argc, char** argv) {
         // ctx.curves[sofrCurve.id]     = buildZeroCurve(sofrCurve, ctx.calendar);
         ctx.curves[kofrCurve.id]     = buildZeroCurve(kofrCurve, ctx.calendar);
 
+        std::vector<std::pair<Date, double>> kofrFixings;
+        kofrFixings.emplace_back(ctx.calendar.adjust(ctx.valuationDate - 1), kofrRates.front());
+        ctx.indexFixings["KOFR"] = kofrFixings;
+
         double bumpSize = 0.0001;
         ctx.bucketConfigs.push_back(
             buildBucketConfig(kofrCurve, ctx.valuationDate, bumpSize, ctx.calendar, tenorStrs)

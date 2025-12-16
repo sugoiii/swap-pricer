@@ -75,6 +75,12 @@ static void buildSimpleFlatContext(
     ctx.curves["FWD_SOFR"] = flatHandle;
     ctx.curves["FWD_KOFR"] = flatHandle;
 
+    std::vector<std::pair<Date, double>> flatFixings;
+    Date fixingDate = ctx.calendar.adjust(ctx.valuationDate - 1);
+    flatFixings.emplace_back(fixingDate, flatDiscountRate);
+    ctx.indexFixings["KOFR"] = flatFixings;
+    ctx.indexFixings["CD"] = flatFixings;
+
     CurveBucketConfig cfg;
     cfg.curveId = "DISCOUNT";
     cfg.bumpSize = bumpSize;
