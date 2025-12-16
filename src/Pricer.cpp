@@ -61,6 +61,32 @@ namespace IRS {
         QL_FAIL("Unsupported Frequency");
     };
 
+    void IRSwapPricer::applyIborFixings(const std::string& indexName,
+                                        const PricingContext& ctx,
+                                        const boost::shared_ptr<IborIndex>& index) const {
+        auto fixIt = ctx.indexFixings.find(indexName);
+        if (fixIt == ctx.indexFixings.end()) {
+            return;
+        }
+
+        const auto& fixings = fixIt->second;
+        if (fixings.empty()) {
+            return;
+        }
+
+        std::vector<Date> fixingDates;
+        std::vector<Real> fixingValues;
+        fixingDates.reserve(fixings.size());
+        fixingValues.reserve(fixings.size());
+
+        for (const auto& fixing : fixings) {
+            fixingDates.push_back(fixing.first);
+            fixingValues.push_back(fixing.second);
+        }
+
+        index->addFixings(fixingDates.begin(), fixingDates.end(), fixingValues.begin(), true);
+    }
+
     boost::shared_ptr<IborIndex> IRSwapPricer::resolveIborIndex(const FloatingLegSpec& floatSpec, const PricingContext& ctx) const {
         
         // 1) if already cached, use it
@@ -68,6 +94,7 @@ namespace IRS {
         if (it != ctx.indices.end()) {
             auto ibor = boost::dynamic_pointer_cast<IborIndex>(it->second);
             if (!ibor) QL_FAIL("Index " << floatSpec.indexName << " is not an IborIndex");
+            applyIborFixings(floatSpec.indexName, ctx, ibor);
             return ibor;
         }
 
@@ -79,12 +106,17 @@ namespace IRS {
 
         if (floatSpec.indexName == "CD") {
             // TODO - 캘린더 정보 제대로 넣어야함.
-            return boost::shared_ptr<IborIndex>(
+            auto index = boost::shared_ptr<IborIndex>(
                 new QuantLib::IborIndex(
                     "CD91", 3 * QuantLib::Months, 2, QuantLib::KRWCurrency(),
                     TARGET(), QuantLib::ModifiedFollowing, false, QuantLib::Actual365Fixed(), fwdCurve)
             );
+
+            applyIborFixings(floatSpec.indexName, ctx, index);
+            return index;
         }
+
+        QL_FAIL("Unsupported Ibor index: " << floatSpec.indexName);
     };
 
     boost::shared_ptr<OvernightIndex> IRSwapPricer::resolveOvernightIndex(const FloatingLegSpec& floatSpec, const PricingContext& ctx) const {

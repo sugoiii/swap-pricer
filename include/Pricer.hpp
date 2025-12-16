@@ -34,6 +34,10 @@ namespace IRS {
         QuantLib::BusinessDayConvention mapBDC(BusinessDayConv bdc) const;
         QuantLib::Frequency mapFrequency(Frequency f) const;
 
+        void applyIborFixings(const std::string& indexName,
+                              const PricingContext& ctx,
+                              const boost::shared_ptr<QuantLib::IborIndex>& index) const;
+
         boost::shared_ptr<QuantLib::IborIndex> resolveIborIndex(const FloatingLegSpec& floatSpec, const PricingContext& ctx) const;
         boost::shared_ptr<QuantLib::OvernightIndex> resolveOvernightIndex(const FloatingLegSpec& floatSpec, const PricingContext& ctx) const;
 
