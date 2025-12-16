@@ -72,7 +72,7 @@ static void buildSimpleFlatContext(
     Handle<YieldTermStructure> flatHandle(flatCurve);
 
     ctx.curves["DISCOUNT"] = flatHandle;
-    ctx.curves["FWD_SOFR"] = flatHandle;
+    ctx.curves["FWD_CD"] = flatHandle;
     ctx.curves["FWD_KOFR"] = flatHandle;
 
     std::vector<std::pair<Date, double>> flatFixings;

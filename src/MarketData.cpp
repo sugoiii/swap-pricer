@@ -63,7 +63,8 @@ namespace IRS
         }
 
         // TODO - 이거는 발생해선 안된다...!!
-        if (Settings::instance().evaluationDate() == Date()) {
+        if (Settings::instance().evaluationDate() == Date())
+        {
             QL_FAIL("NO EVAL DATE");
             Settings::instance().evaluationDate() = calendar.adjust(dates.front());
         }
