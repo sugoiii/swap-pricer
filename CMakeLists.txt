@@ -3,7 +3,12 @@ project(irs_pricer CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 
-find_package(QuantLib REQUIRED)
+if (WIN32)
+    set(QuantLib_ROOT "C:/local/Quantlib" CACHE PATH "Root directory of QuantLib installation")
+    list(APPEND CMAKE_PREFIX_PATH "${QuantLib_ROOT}")
+endif()
+
+find_package(QuantLib REQUIRED CONFIG)
 
 add_library(irs_core
     src/Pricer.cpp
