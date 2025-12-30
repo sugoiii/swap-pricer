@@ -105,7 +105,7 @@ End Type
     Public Declare PtrSafe Function IRS_IS_NAN Lib SWAP_PRICER_DLL (ByVal value As Double) As Long
     Public Declare PtrSafe Sub IRS_SET_DEBUG_MODE Lib SWAP_PRICER_DLL (ByVal enabled As Long)
     Public Declare PtrSafe Sub IRS_SET_DEBUG_LOG_PATH Lib SWAP_PRICER_DLL (ByVal path As LongPtr)
-    Private Declare PtrSafe Function lstrlenA Lib "kernel32" (ByVal lpString As LongPtr) As Long
+    Private Declare PtrSafe Function lstrlenW Lib "kernel32" (ByVal lpString As LongPtr) As Long
     Private Declare PtrSafe Sub CopyMemory Lib "kernel32" Alias "RtlMoveMemory" _
         (ByVal dest As LongPtr, ByVal src As LongPtr, ByVal cb As LongPtr)
 #Else
@@ -121,7 +121,7 @@ End Type
     Public Declare Function IRS_IS_NAN Lib SWAP_PRICER_DLL (ByVal value As Double) As Long
     Public Declare Sub IRS_SET_DEBUG_MODE Lib SWAP_PRICER_DLL (ByVal enabled As Long)
     Public Declare Sub IRS_SET_DEBUG_LOG_PATH Lib SWAP_PRICER_DLL (ByVal path As LongPtr)
-    Private Declare Function lstrlenA Lib "kernel32" (ByVal lpString As LongPtr) As Long
+    Private Declare Function lstrlenW Lib "kernel32" (ByVal lpString As LongPtr) As Long
     Private Declare Sub CopyMemory Lib "kernel32" Alias "RtlMoveMemory" _
         (ByVal dest As LongPtr, ByVal src As LongPtr, ByVal cb As LongPtr)
 #End If
@@ -132,24 +132,22 @@ Private Function PtrToCString(ByVal s As String) As LongPtr
     PtrToCString = StrPtr(s)
 End Function
 
-Private Function PtrToStringA(ByVal ptr As LongPtr) As String
+Private Function PtrToStringW(ByVal ptr As LongPtr) As String
     Dim length As Long
-    Dim bytes() As Byte
 
     If ptr = 0 Then
-        PtrToStringA = vbNullString
+        PtrToStringW = vbNullString
         Exit Function
     End If
 
-    length = lstrlenA(ptr)
+    length = lstrlenW(ptr)
     If length <= 0 Then
-        PtrToStringA = vbNullString
+        PtrToStringW = vbNullString
         Exit Function
     End If
 
-    ReDim bytes(0 To length - 1)
-    CopyMemory VarPtr(bytes(0)), ptr, length
-    PtrToStringA = StrConv(bytes, vbUnicode)
+    PtrToStringW = String$(length, vbNullChar)
+    CopyMemory ByVal StrPtr(PtrToStringW), ptr, CLng(length) * 2
 End Function
 
 Private Sub RangeToDoubleArray(ByVal source As Range, ByRef output() As Double)
@@ -773,7 +771,7 @@ Public Sub PriceSwapFromSheet(Optional ByVal curvesRangeName As String = "SwapCu
         bucketRange.Value2 = bucketValues
     Next i
 
-    errorMessage = PtrToStringA(IRS_LAST_ERROR())
+    errorMessage = PtrToStringW(IRS_LAST_ERROR())
     If Len(errorMessage) > 0 Then
         LogMessage "IRS_LAST_ERROR: " & errorMessage, logSheet
     End If
@@ -797,7 +795,7 @@ Public Function PriceSwapAndBuckets(ByRef swapSpec As VBASwapSpec, _
                                    outPillarSerials, outDeltas, maxBuckets, outUsedBuckets)
 
     errorPtr = IRS_LAST_ERROR()
-    errorMessage = PtrToStringA(errorPtr)
+    errorMessage = PtrToStringW(errorPtr)
     If Len(errorMessage) > 0 Then
         Err.Raise vbObjectError + 2000, , errorMessage
     End If
