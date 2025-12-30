@@ -638,6 +638,13 @@ Public Sub PriceSwapFromSheet(Optional ByVal curvesRangeName As String = "SwapCu
     Dim maxBuckets As Long
     Dim npv As Double
     Dim specValues As Variant
+    Dim swapCount As Long
+    Dim bucketRowsPerSwap As Long
+    Dim leg1Row As Range
+    Dim leg2Row As Range
+    Dim npvCell As Range
+    Dim bucketRange As Range
+    Dim i As Long
     Dim errorMessage As String
 
     If Len(logSheetName) > 0 Then
@@ -666,13 +673,25 @@ Public Sub PriceSwapFromSheet(Optional ByVal curvesRangeName As String = "SwapCu
         Err.Raise vbObjectError + 1111, , "Swap spec range must have 4 columns: SwapType, DiscountCurveId, ValuationCurveId, ValuationDate"
     End If
 
+    swapCount = swapSpecRange.Rows.Count
+    If leg1Range.Rows.Count < swapCount Then
+        Err.Raise vbObjectError + 1117, , "SwapLeg1 range must have at least " & swapCount & " rows to match SwapSpec"
+    End If
+    If leg2Range.Rows.Count < swapCount Then
+        Err.Raise vbObjectError + 1118, , "SwapLeg2 range must have at least " & swapCount & " rows to match SwapSpec"
+    End If
+    If npvOutput.Rows.Count < swapCount Then
+        Err.Raise vbObjectError + 1119, , "SwapNPVOutput range must have at least " & swapCount & " rows to match SwapSpec"
+    End If
+    If bucketOutput.Rows.Count Mod swapCount <> 0 Then
+        Err.Raise vbObjectError + 1120, , "SwapBucketOutput rows must be divisible by SwapSpec row count"
+    End If
+    bucketRowsPerSwap = bucketOutput.Rows.Count \ swapCount
+    If bucketRowsPerSwap < 1 Then
+        Err.Raise vbObjectError + 1121, , "SwapBucketOutput range must have at least one row per swap"
+    End If
+
     specValues = swapSpecRange.Value2
-    LoadSwapSpecFromSheet CLng(specValues(1, 1)), _
-                          CStr(specValues(1, 2)), _
-                          CStr(specValues(1, 3)), _
-                          swapSpecRange.Cells(1, 4), _
-                          leg1Range, leg2Range, _
-                          swapSpec, swapBuffers
 
     holidayCount = 0
     If Not holidaysRange Is Nothing Then
@@ -691,7 +710,7 @@ Public Sub PriceSwapFromSheet(Optional ByVal curvesRangeName As String = "SwapCu
 
     LogMessage "PriceSwapFromSheet start", logSheet
     LogMessage "Curves: " & UBound(curves) + 1 & ", Fixings: " & UBound(fixings) + 1 & ", Buckets: " & UBound(buckets) + 1, logSheet
-    LogMessage "SwapType=" & specValues(1, 1) & ", DiscountCurveId=" & specValues(1, 2) & ", ValuationCurveId=" & specValues(1, 3) & ", ValuationDate=" & specValues(1, 4), logSheet
+    LogMessage "SwapCount=" & swapCount, logSheet
     LogMessage "HolidayCount=" & holidayCount, logSheet
 
     If dryRun Then
@@ -699,49 +718,65 @@ Public Sub PriceSwapFromSheet(Optional ByVal curvesRangeName As String = "SwapCu
         Exit Sub
     End If
 
-    maxBuckets = bucketOutput.Rows.Count
+    maxBuckets = bucketRowsPerSwap
     If maxBuckets < 1 Then
         Err.Raise vbObjectError + 1116, , "Bucket output range must have at least one row"
     End If
     ReDim outPillarSerials(0 To maxBuckets - 1)
     ReDim outDeltas(0 To maxBuckets - 1)
 
-    If holidayCount > 0 Then
-        npv = PriceSwapAndBuckets(swapSpec, curves(0), UBound(curves) + 1, fixings(0), UBound(fixings) + 1, _
-                                  buckets(0), UBound(buckets) + 1, holidaySerials(0), holidayCount, _
-                                  outPillarSerials(0), outDeltas(0), maxBuckets, usedBuckets)
-    Else
-        npv = PriceSwapAndBuckets(swapSpec, curves(0), UBound(curves) + 1, fixings(0), UBound(fixings) + 1, _
-                                  buckets(0), UBound(buckets) + 1, holidayDummy, 0, _
-                                  outPillarSerials(0), outDeltas(0), maxBuckets, usedBuckets)
-    End If
+    For i = 1 To swapCount
+        Set leg1Row = leg1Range.Rows(i)
+        Set leg2Row = leg2Range.Rows(i)
+        Set npvCell = npvOutput.Cells(i, 1)
+        Set bucketRange = bucketOutput.Rows((i - 1) * maxBuckets + 1).Resize(maxBuckets, 2)
 
-    npvOutput.Value2 = npv
+        LoadSwapSpecFromSheet CLng(specValues(i, 1)), _
+                              CStr(specValues(i, 2)), _
+                              CStr(specValues(i, 3)), _
+                              swapSpecRange.Cells(i, 4), _
+                              leg1Row, leg2Row, _
+                              swapSpec, swapBuffers
 
-    If usedBuckets > maxBuckets Then
-        Err.Raise vbObjectError + 1113, , "Bucket output range too small for returned deltas"
-    End If
+        LogMessage "SwapRow=" & i & ", SwapType=" & specValues(i, 1) & ", DiscountCurveId=" & specValues(i, 2) & ", ValuationCurveId=" & specValues(i, 3) & ", ValuationDate=" & specValues(i, 4), logSheet
 
-    Dim bucketValues() As Variant
-    Dim i As Long
-    ReDim bucketValues(1 To maxBuckets, 1 To 2)
-    For i = 1 To maxBuckets
-        If i <= usedBuckets Then
-            bucketValues(i, 1) = outPillarSerials(i - 1)
-            bucketValues(i, 2) = outDeltas(i - 1)
+        If holidayCount > 0 Then
+            npv = PriceSwapAndBuckets(swapSpec, curves(0), UBound(curves) + 1, fixings(0), UBound(fixings) + 1, _
+                                      buckets(0), UBound(buckets) + 1, holidaySerials(0), holidayCount, _
+                                      outPillarSerials(0), outDeltas(0), maxBuckets, usedBuckets)
         Else
-            bucketValues(i, 1) = vbNullString
-            bucketValues(i, 2) = vbNullString
+            npv = PriceSwapAndBuckets(swapSpec, curves(0), UBound(curves) + 1, fixings(0), UBound(fixings) + 1, _
+                                      buckets(0), UBound(buckets) + 1, holidayDummy, 0, _
+                                      outPillarSerials(0), outDeltas(0), maxBuckets, usedBuckets)
         End If
+
+        npvCell.Value2 = npv
+
+        If usedBuckets > maxBuckets Then
+            Err.Raise vbObjectError + 1113, , "Bucket output range too small for returned deltas"
+        End If
+
+        Dim bucketValues() As Variant
+        Dim bucketIndex As Long
+        ReDim bucketValues(1 To maxBuckets, 1 To 2)
+        For bucketIndex = 1 To maxBuckets
+            If bucketIndex <= usedBuckets Then
+                bucketValues(bucketIndex, 1) = outPillarSerials(bucketIndex - 1)
+                bucketValues(bucketIndex, 2) = outDeltas(bucketIndex - 1)
+            Else
+                bucketValues(bucketIndex, 1) = vbNullString
+                bucketValues(bucketIndex, 2) = vbNullString
+            End If
+        Next bucketIndex
+        bucketRange.Value2 = bucketValues
     Next i
-    bucketOutput.Value2 = bucketValues
 
     errorMessage = PtrToStringA(IRS_LAST_ERROR())
     If Len(errorMessage) > 0 Then
         LogMessage "IRS_LAST_ERROR: " & errorMessage, logSheet
     End If
 
-    LogMessage "PriceSwapFromSheet completed. UsedBuckets=" & usedBuckets & ", NPV=" & npv, logSheet
+    LogMessage "PriceSwapFromSheet completed. UsedBuckets=" & usedBuckets & ", LastNPV=" & npv, logSheet
 End Sub
 
 Public Function PriceSwapAndBuckets(ByRef swapSpec As VBASwapSpec, _
