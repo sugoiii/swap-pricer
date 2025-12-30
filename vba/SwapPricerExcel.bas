@@ -129,6 +129,7 @@ End Type
 ' ====== Helpers ======
 
 Private Function PtrToCString(ByVal s As String) As LongPtr
+    ' Pointer must reference a buffered string that stays alive during the DLL call.
     PtrToCString = StrPtr(s)
 End Function
 
@@ -506,7 +507,8 @@ Public Sub LoadCurveInputFromSheet(ByVal curveId As String, _
     RangeToStringArray tenorsRange, buffers.tenorStrings
     BuildStringPointers buffers.tenorStrings, buffers.tenorPtrs
 
-    curve.id = PtrToCString(curveId)
+    buffers.curveId = curveId
+    curve.id = PtrToCString(buffers.curveId)
     curve.pillarSerials = VarPtr(buffers.pillarSerials(0))
     curve.discountRates = VarPtr(buffers.discountRates(0))
     curve.tenorStrings = VarPtr(buffers.tenorPtrs(0))
@@ -526,7 +528,8 @@ Public Sub LoadFixingsFromSheet(ByVal indexName As String, _
     RangeToDoubleArray fixingDatesRange, buffers.fixingDates
     RangeToDoubleArray fixingRatesRange, buffers.fixingRates
 
-    fixing.indexName = PtrToCString(indexName)
+    buffers.indexName = indexName
+    fixing.indexName = PtrToCString(buffers.indexName)
     fixing.fixingDateSerials = VarPtr(buffers.fixingDates(0))
     fixing.fixingRates = VarPtr(buffers.fixingRates(0))
     fixing.fixingCount = fixingDatesRange.Count
@@ -540,7 +543,8 @@ Public Sub LoadBucketConfigFromSheet(ByVal curveId As String, _
     RangeToStringArray tenorRange, buffers.tenorStrings
     BuildStringPointers buffers.tenorStrings, buffers.tenorPtrs
 
-    bucket.curveId = PtrToCString(curveId)
+    buffers.curveId = curveId
+    bucket.curveId = PtrToCString(buffers.curveId)
     bucket.tenorStrings = VarPtr(buffers.tenorPtrs(0))
     bucket.tenorCount = tenorRange.Count
     bucket.bumpSize = CDbl(bumpSizeCell.Value)
@@ -808,8 +812,11 @@ Public Function PriceSwapAndBuckets(ByRef swapSpec As VBASwapSpec, _
 End Function
 
 Public Sub SetDebugMode(ByVal enabled As Boolean, Optional ByVal logPath As String = "")
+    Dim logPathBuffer As String
+
     IRS_SET_DEBUG_MODE IIf(enabled, 1, 0)
     If Len(logPath) > 0 Then
-        IRS_SET_DEBUG_LOG_PATH PtrToCString(logPath)
+        logPathBuffer = logPath
+        IRS_SET_DEBUG_LOG_PATH PtrToCString(logPathBuffer)
     End If
 End Sub
