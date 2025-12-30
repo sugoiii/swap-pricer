@@ -102,6 +102,7 @@ End Type
          ByRef outPillarSerials As Double, ByRef outDeltas As Double, _
          ByVal maxBuckets As Long, ByRef outUsedBuckets As Long) As Double
     Public Declare PtrSafe Function IRS_LAST_ERROR Lib SWAP_PRICER_DLL () As LongPtr
+    Public Declare PtrSafe Function IRS_IS_NAN Lib SWAP_PRICER_DLL (ByVal value As Double) As Long
     Public Declare PtrSafe Sub IRS_SET_DEBUG_MODE Lib SWAP_PRICER_DLL (ByVal enabled As Long)
     Public Declare PtrSafe Sub IRS_SET_DEBUG_LOG_PATH Lib SWAP_PRICER_DLL (ByVal path As LongPtr)
     Private Declare PtrSafe Function lstrlenA Lib "kernel32" (ByVal lpString As LongPtr) As Long
@@ -117,6 +118,7 @@ End Type
          ByRef outPillarSerials As Double, ByRef outDeltas As Double, _
          ByVal maxBuckets As Long, ByRef outUsedBuckets As Long) As Double
     Public Declare Function IRS_LAST_ERROR Lib SWAP_PRICER_DLL () As LongPtr
+    Public Declare Function IRS_IS_NAN Lib SWAP_PRICER_DLL (ByVal value As Double) As Long
     Public Declare Sub IRS_SET_DEBUG_MODE Lib SWAP_PRICER_DLL (ByVal enabled As Long)
     Public Declare Sub IRS_SET_DEBUG_LOG_PATH Lib SWAP_PRICER_DLL (ByVal path As LongPtr)
     Private Declare Function lstrlenA Lib "kernel32" (ByVal lpString As LongPtr) As Long
@@ -794,13 +796,14 @@ Public Function PriceSwapAndBuckets(ByRef swapSpec As VBASwapSpec, _
                                    bucketInputs, bucketCount, holidaySerials, holidayCount, _
                                    outPillarSerials, outDeltas, maxBuckets, outUsedBuckets)
 
-    If result <> result Then
-        errorPtr = IRS_LAST_ERROR()
-        errorMessage = PtrToStringA(errorPtr)
-        If Len(errorMessage) = 0 Then
-            errorMessage = "Unknown error from IRS_PRICE_AND_BUCKETS"
-        End If
+    errorPtr = IRS_LAST_ERROR()
+    errorMessage = PtrToStringA(errorPtr)
+    If Len(errorMessage) > 0 Then
         Err.Raise vbObjectError + 2000, , errorMessage
+    End If
+
+    If IRS_IS_NAN(result) <> 0 Then
+        Err.Raise vbObjectError + 2000, , "IRS_PRICE_AND_BUCKETS returned NaN without error"
     End If
 
     PriceSwapAndBuckets = result

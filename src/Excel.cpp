@@ -1008,6 +1008,11 @@ extern "C" __declspec(dllexport) const char *__stdcall IRS_LAST_ERROR()
     return lastError.c_str();
 }
 
+extern "C" __declspec(dllexport) int __stdcall IRS_IS_NAN(double value)
+{
+    return std::isnan(value) ? 1 : 0;
+}
+
 extern "C" __declspec(dllexport) void __stdcall IRS_SET_DEBUG_MODE(int enabled)
 {
     debugEnabled = enabled != 0;
