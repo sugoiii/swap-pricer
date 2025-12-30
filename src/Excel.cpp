@@ -7,6 +7,9 @@
 #include <string>
 #include <vector>
 #include <limits>
+#include <fstream>
+#include <mutex>
+#include <sstream>
 
 #include <ql/quantlib.hpp>
 
@@ -148,6 +151,65 @@ struct VBASwapSpec
 // ---------------- Mapping helpers ----------------
 
 static thread_local std::string lastError;
+static std::mutex logMutex;
+static bool debugEnabled = false;
+static std::string debugLogPath = "swap_pricer_debug.log";
+
+static void logDebugLine(const std::string &message)
+{
+    if (!debugEnabled)
+    {
+        return;
+    }
+
+    std::lock_guard<std::mutex> lock(logMutex);
+    std::ofstream out(debugLogPath, std::ios::out | std::ios::app);
+    if (out)
+    {
+        out << message << "\n";
+    }
+}
+
+static const char *legTypeLabel(IRS::LegType type)
+{
+    switch (type)
+    {
+    case IRS::LegType::Fixed:
+        return "Fixed";
+    case IRS::LegType::Ibor:
+        return "Ibor";
+    case IRS::LegType::Overnight:
+        return "Overnight";
+    default:
+        return "Unknown";
+    }
+}
+
+static const char *payReceiveLabel(IRS::PayReceive payReceive)
+{
+    switch (payReceive)
+    {
+    case IRS::PayReceive::Payer:
+        return "Payer";
+    case IRS::PayReceive::Receiver:
+        return "Receiver";
+    default:
+        return "Unknown";
+    }
+}
+
+static const char *swapTypeLabel(IRS::SwapType swapType)
+{
+    switch (swapType)
+    {
+    case IRS::SwapType::Vanilla:
+        return "Vanilla";
+    case IRS::SwapType::OvernightIndexed:
+        return "OvernightIndexed";
+    default:
+        return "Unknown";
+    }
+}
 
 static void setLastError(const std::string &message)
 {
@@ -440,6 +502,15 @@ static bool fillSwapSpec(const VBASwapSpec &raw, IRS::IRSwapSpec &out, std::stri
     out.valuationCurveId = raw.valuationCurveId;
     out.valuationDateSerial = static_cast<long>(raw.valuationDateSerial);
 
+    {
+        std::ostringstream details;
+        details << "fillSwapSpec: swapType=" << swapTypeLabel(out.swapType)
+                << " discountCurveId=" << out.discountCurveId
+                << " valuationCurveId=" << out.valuationCurveId
+                << " valuationDateSerial=" << out.valuationDateSerial;
+        logDebugLine(details.str());
+    }
+
     if (!fillLeg(raw.leg1, out.leg1, error))
     {
         setLastError(error);
@@ -450,6 +521,23 @@ static bool fillSwapSpec(const VBASwapSpec &raw, IRS::IRSwapSpec &out, std::stri
     {
         setLastError(error);
         return false;
+    }
+
+    {
+        std::ostringstream details;
+        details << "fillSwapSpec: leg1 type=" << legTypeLabel(out.leg1.type)
+                << " payReceive=" << payReceiveLabel(out.leg1.payReceive)
+                << " notional=" << out.leg1.notional
+                << " index=" << out.leg1.floating.indexName;
+        logDebugLine(details.str());
+    }
+    {
+        std::ostringstream details;
+        details << "fillSwapSpec: leg2 type=" << legTypeLabel(out.leg2.type)
+                << " payReceive=" << payReceiveLabel(out.leg2.payReceive)
+                << " notional=" << out.leg2.notional
+                << " index=" << out.leg2.floating.indexName;
+        logDebugLine(details.str());
     }
 
     return true;
@@ -505,12 +593,27 @@ static bool buildPricingContext(double valuationDateSerial,
     ctx.calendar = buildCalendar(holidays);
     ctx.valuationDate = ctx.calendar.adjust(fromExcelSerial(valuationDateSerial));
     Settings::instance().evaluationDate() = ctx.valuationDate;
+    {
+        std::ostringstream details;
+        details << "buildPricingContext: valuationDateSerial=" << valuationDateSerial
+                << " valuationDate=" << ctx.valuationDate
+                << " holidayCount=" << holidayCount;
+        logDebugLine(details.str());
+    }
 
     if (!curveInputs || curveCount <= 0)
     {
         error = "No curves supplied";
         setLastError(error);
         return false;
+    }
+
+    {
+        std::ostringstream details;
+        details << "buildPricingContext: curveCount=" << curveCount
+                << " fixingCount=" << fixingCount
+                << " bucketCount=" << bucketCount;
+        logDebugLine(details.str());
     }
 
     for (int i = 0; i < curveCount; ++i)
@@ -520,6 +623,14 @@ static bool buildPricingContext(double valuationDateSerial,
         {
             setLastError(error);
             return false;
+        }
+
+        {
+            std::ostringstream details;
+            details << "buildPricingContext: curveId=" << input.id
+                    << " pillars=" << input.dates.size()
+                    << " dayCountCode=" << curveInputs[i].dayCountCode;
+            logDebugLine(details.str());
         }
 
         Handle<YieldTermStructure> curveHandle = buildZeroCurve(input, ctx.calendar);
@@ -532,6 +643,14 @@ static bool buildPricingContext(double valuationDateSerial,
         {
             setLastError(error);
             return false;
+        }
+
+        if (fixingInputs && fixingInputs[i].indexName)
+        {
+            std::ostringstream details;
+            details << "buildPricingContext: fixings index=" << fixingInputs[i].indexName
+                    << " count=" << fixingInputs[i].fixingCount;
+            logDebugLine(details.str());
         }
     }
 
@@ -546,6 +665,11 @@ static bool buildPricingContext(double valuationDateSerial,
 
         if (!cfg.curveId.empty())
         {
+            std::ostringstream details;
+            details << "buildPricingContext: bucketConfig curveId=" << cfg.curveId
+                    << " buckets=" << cfg.buckets.size()
+                    << " bumpSize=" << cfg.bumpSize;
+            logDebugLine(details.str());
             ctx.bucketConfigs.push_back(cfg);
         }
     }
@@ -681,6 +805,19 @@ extern "C" __declspec(dllexport) double __stdcall IRS_PRICE_AND_BUCKETS(
 extern "C" __declspec(dllexport) const char *__stdcall IRS_LAST_ERROR()
 {
     return lastError.c_str();
+}
+
+extern "C" __declspec(dllexport) void __stdcall IRS_SET_DEBUG_MODE(int enabled)
+{
+    debugEnabled = enabled != 0;
+}
+
+extern "C" __declspec(dllexport) void __stdcall IRS_SET_DEBUG_LOG_PATH(const char *path)
+{
+    if (path && *path)
+    {
+        debugLogPath = path;
+    }
 }
 
 extern "C" __declspec(dllexport) void __stdcall IRS_PRICE_AND_BUCKETS_BATCH(
