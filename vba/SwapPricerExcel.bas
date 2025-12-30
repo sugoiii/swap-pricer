@@ -60,6 +60,7 @@ End Type
 ' ====== Buffer holders to keep data alive ======
 
 Public Type CurveBuffers
+    curveId As String
     pillarSerials() As Double
     discountRates() As Double
     tenorStrings() As String
@@ -67,11 +68,13 @@ Public Type CurveBuffers
 End Type
 
 Public Type FixingBuffers
+    indexName As String
     fixingDates() As Double
     fixingRates() As Double
 End Type
 
 Public Type BucketBuffers
+    curveId As String
     tenorStrings() As String
     tenorPtrs() As LongPtr
 End Type
@@ -187,6 +190,300 @@ Private Sub BuildStringPointers(ByRef strings() As String, ByRef ptrs() As LongP
     Next i
 End Sub
 
+Private Function GetNamedRange(ByVal rangeName As String) As Range
+    Dim target As Range
+
+    On Error GoTo HandleError
+    Set target = ThisWorkbook.Names(rangeName).RefersToRange
+    Set GetNamedRange = target
+    Exit Function
+
+HandleError:
+    Err.Raise vbObjectError + 1100, , "Missing named range: " & rangeName
+End Function
+
+Private Function TryGetNamedRange(ByVal rangeName As String) As Range
+    If Len(rangeName) = 0 Then
+        Exit Function
+    End If
+
+    On Error Resume Next
+    Set TryGetNamedRange = ThisWorkbook.Names(rangeName).RefersToRange
+    On Error GoTo 0
+End Function
+
+Private Sub LogMessage(ByVal message As String, Optional ByVal logSheet As Worksheet)
+    Debug.Print message
+
+    If Not logSheet Is Nothing Then
+        Dim nextRow As Long
+
+        If Application.WorksheetFunction.CountA(logSheet.Cells) = 0 Then
+            nextRow = 1
+        Else
+            nextRow = logSheet.Cells(logSheet.Rows.Count, 1).End(xlUp).Row + 1
+        End If
+
+        logSheet.Cells(nextRow, 1).Value2 = Now
+        logSheet.Cells(nextRow, 2).Value2 = message
+    End If
+End Sub
+
+Private Function GetOrCreateLogSheet(ByVal logSheetName As String) As Worksheet
+    Dim sheet As Worksheet
+
+    On Error Resume Next
+    Set sheet = ThisWorkbook.Worksheets(logSheetName)
+    On Error GoTo 0
+
+    If sheet Is Nothing Then
+        Set sheet = ThisWorkbook.Worksheets.Add(After:=ThisWorkbook.Worksheets(ThisWorkbook.Worksheets.Count))
+        sheet.Name = logSheetName
+        sheet.Cells(1, 1).Value2 = "Timestamp"
+        sheet.Cells(1, 2).Value2 = "Message"
+    End If
+
+    Set GetOrCreateLogSheet = sheet
+End Function
+
+Private Function HasHeaderRow(ByVal values As Variant, ByVal numericColumn As Long) As Boolean
+    On Error GoTo NoHeader
+    HasHeaderRow = Not IsNumeric(values(1, numericColumn))
+    Exit Function
+
+NoHeader:
+    HasHeaderRow = False
+End Function
+
+Private Sub LoadCurvesFromTable(ByVal curveTable As Range, _
+                                ByRef curves() As VBACurveInput, _
+                                ByRef buffers() As CurveBuffers)
+    Dim values As Variant
+    Dim rowCount As Long
+    Dim startRow As Long
+    Dim r As Long
+    Dim curveId As String
+    Dim dict As Object
+    Dim counts As Object
+    Dim dayCounts As Object
+    Dim key As Variant
+    Dim idx As Long
+    Dim positions() As Long
+
+    If curveTable.Columns.Count < 5 Then
+        Err.Raise vbObjectError + 1101, , "Curve table must have 5 columns: CurveId, PillarDate, Rate, Tenor, DayCount"
+    End If
+
+    values = curveTable.Value2
+    rowCount = UBound(values, 1)
+    startRow = IIf(HasHeaderRow(values, 2), 2, 1)
+
+    Set dict = CreateObject("Scripting.Dictionary")
+    Set counts = CreateObject("Scripting.Dictionary")
+    Set dayCounts = CreateObject("Scripting.Dictionary")
+
+    For r = startRow To rowCount
+        curveId = Trim(CStr(values(r, 1)))
+        If Len(curveId) = 0 Then
+            Err.Raise vbObjectError + 1102, , "Curve table contains blank CurveId"
+        End If
+
+        If Not dict.Exists(curveId) Then
+            dict.Add curveId, dict.Count
+            counts.Add curveId, 0
+            dayCounts.Add curveId, CLng(values(r, 5))
+        ElseIf CLng(values(r, 5)) <> CLng(dayCounts(curveId)) Then
+            Err.Raise vbObjectError + 1103, , "Curve " & curveId & " has inconsistent day count codes"
+        End If
+
+        counts(curveId) = counts(curveId) + 1
+    Next r
+
+    If dict.Count = 0 Then
+        Err.Raise vbObjectError + 1104, , "Curve table is empty"
+    End If
+
+    ReDim curves(0 To dict.Count - 1)
+    ReDim buffers(0 To dict.Count - 1)
+    ReDim positions(0 To dict.Count - 1)
+
+    For Each key In dict.Keys
+        idx = dict(key)
+        buffers(idx).curveId = CStr(key)
+        ReDim buffers(idx).pillarSerials(0 To counts(key) - 1)
+        ReDim buffers(idx).discountRates(0 To counts(key) - 1)
+        ReDim buffers(idx).tenorStrings(0 To counts(key) - 1)
+        ReDim buffers(idx).tenorPtrs(0 To counts(key) - 1)
+    Next key
+
+    For r = startRow To rowCount
+        curveId = Trim(CStr(values(r, 1)))
+        idx = dict(curveId)
+        buffers(idx).pillarSerials(positions(idx)) = CDbl(values(r, 2))
+        buffers(idx).discountRates(positions(idx)) = CDbl(values(r, 3))
+        buffers(idx).tenorStrings(positions(idx)) = CStr(values(r, 4))
+        positions(idx) = positions(idx) + 1
+    Next r
+
+    For Each key In dict.Keys
+        idx = dict(key)
+        BuildStringPointers buffers(idx).tenorStrings, buffers(idx).tenorPtrs
+        curves(idx).id = PtrToCString(buffers(idx).curveId)
+        curves(idx).pillarSerials = VarPtr(buffers(idx).pillarSerials(0))
+        curves(idx).discountRates = VarPtr(buffers(idx).discountRates(0))
+        curves(idx).tenorStrings = VarPtr(buffers(idx).tenorPtrs(0))
+        curves(idx).pillarCount = UBound(buffers(idx).pillarSerials) + 1
+        curves(idx).dayCountCode = CLng(dayCounts(key))
+    Next key
+End Sub
+
+Private Sub LoadFixingsFromTable(ByVal fixingTable As Range, _
+                                 ByRef fixings() As VBAFixingInput, _
+                                 ByRef buffers() As FixingBuffers)
+    Dim values As Variant
+    Dim rowCount As Long
+    Dim startRow As Long
+    Dim r As Long
+    Dim indexName As String
+    Dim dict As Object
+    Dim counts As Object
+    Dim key As Variant
+    Dim idx As Long
+    Dim positions() As Long
+
+    If fixingTable.Columns.Count < 3 Then
+        Err.Raise vbObjectError + 1105, , "Fixing table must have 3 columns: IndexName, FixingDate, FixingRate"
+    End If
+
+    values = fixingTable.Value2
+    rowCount = UBound(values, 1)
+    startRow = IIf(HasHeaderRow(values, 2), 2, 1)
+
+    Set dict = CreateObject("Scripting.Dictionary")
+    Set counts = CreateObject("Scripting.Dictionary")
+
+    For r = startRow To rowCount
+        indexName = Trim(CStr(values(r, 1)))
+        If Len(indexName) = 0 Then
+            Err.Raise vbObjectError + 1106, , "Fixing table contains blank IndexName"
+        End If
+
+        If Not dict.Exists(indexName) Then
+            dict.Add indexName, dict.Count
+            counts.Add indexName, 0
+        End If
+
+        counts(indexName) = counts(indexName) + 1
+    Next r
+
+    If dict.Count = 0 Then
+        Err.Raise vbObjectError + 1114, , "Fixing table is empty"
+    End If
+
+    ReDim fixings(0 To dict.Count - 1)
+    ReDim buffers(0 To dict.Count - 1)
+    ReDim positions(0 To dict.Count - 1)
+
+    For Each key In dict.Keys
+        idx = dict(key)
+        buffers(idx).indexName = CStr(key)
+        ReDim buffers(idx).fixingDates(0 To counts(key) - 1)
+        ReDim buffers(idx).fixingRates(0 To counts(key) - 1)
+    Next key
+
+    For r = startRow To rowCount
+        indexName = Trim(CStr(values(r, 1)))
+        idx = dict(indexName)
+        buffers(idx).fixingDates(positions(idx)) = CDbl(values(r, 2))
+        buffers(idx).fixingRates(positions(idx)) = CDbl(values(r, 3))
+        positions(idx) = positions(idx) + 1
+    Next r
+
+    For Each key In dict.Keys
+        idx = dict(key)
+        fixings(idx).indexName = PtrToCString(buffers(idx).indexName)
+        fixings(idx).fixingDateSerials = VarPtr(buffers(idx).fixingDates(0))
+        fixings(idx).fixingRates = VarPtr(buffers(idx).fixingRates(0))
+        fixings(idx).fixingCount = UBound(buffers(idx).fixingDates) + 1
+    Next key
+End Sub
+
+Private Sub LoadBucketsFromTable(ByVal bucketTable As Range, _
+                                 ByRef buckets() As VBABucketConfig, _
+                                 ByRef buffers() As BucketBuffers)
+    Dim values As Variant
+    Dim rowCount As Long
+    Dim startRow As Long
+    Dim r As Long
+    Dim curveId As String
+    Dim dict As Object
+    Dim counts As Object
+    Dim bumpSizes As Object
+    Dim key As Variant
+    Dim idx As Long
+    Dim positions() As Long
+
+    If bucketTable.Columns.Count < 3 Then
+        Err.Raise vbObjectError + 1107, , "Bucket table must have 3 columns: CurveId, Tenor, BumpSize"
+    End If
+
+    values = bucketTable.Value2
+    rowCount = UBound(values, 1)
+    startRow = IIf(HasHeaderRow(values, 3), 2, 1)
+
+    Set dict = CreateObject("Scripting.Dictionary")
+    Set counts = CreateObject("Scripting.Dictionary")
+    Set bumpSizes = CreateObject("Scripting.Dictionary")
+
+    For r = startRow To rowCount
+        curveId = Trim(CStr(values(r, 1)))
+        If Len(curveId) = 0 Then
+            Err.Raise vbObjectError + 1108, , "Bucket table contains blank CurveId"
+        End If
+
+        If Not dict.Exists(curveId) Then
+            dict.Add curveId, dict.Count
+            counts.Add curveId, 0
+            bumpSizes.Add curveId, CDbl(values(r, 3))
+        ElseIf CDbl(values(r, 3)) <> CDbl(bumpSizes(curveId)) Then
+            Err.Raise vbObjectError + 1109, , "Bucket curve " & curveId & " has inconsistent bump sizes"
+        End If
+
+        counts(curveId) = counts(curveId) + 1
+    Next r
+
+    If dict.Count = 0 Then
+        Err.Raise vbObjectError + 1115, , "Bucket table is empty"
+    End If
+
+    ReDim buckets(0 To dict.Count - 1)
+    ReDim buffers(0 To dict.Count - 1)
+    ReDim positions(0 To dict.Count - 1)
+
+    For Each key In dict.Keys
+        idx = dict(key)
+        buffers(idx).curveId = CStr(key)
+        ReDim buffers(idx).tenorStrings(0 To counts(key) - 1)
+        ReDim buffers(idx).tenorPtrs(0 To counts(key) - 1)
+    Next key
+
+    For r = startRow To rowCount
+        curveId = Trim(CStr(values(r, 1)))
+        idx = dict(curveId)
+        buffers(idx).tenorStrings(positions(idx)) = CStr(values(r, 2))
+        positions(idx) = positions(idx) + 1
+    Next r
+
+    For Each key In dict.Keys
+        idx = dict(key)
+        BuildStringPointers buffers(idx).tenorStrings, buffers(idx).tenorPtrs
+        buckets(idx).curveId = PtrToCString(buffers(idx).curveId)
+        buckets(idx).tenorStrings = VarPtr(buffers(idx).tenorPtrs(0))
+        buckets(idx).tenorCount = UBound(buffers(idx).tenorStrings) + 1
+        buckets(idx).bumpSize = CDbl(bumpSizes(key))
+    Next key
+End Sub
+
 ' ====== Loaders ======
 
 Public Sub LoadCurveInputFromSheet(ByVal curveId As String, _
@@ -300,6 +597,151 @@ Public Sub LoadSwapSpecFromSheet(ByVal swapType As Long, _
 
     LoadLegSpecFromRange leg1Range, swap.leg1, buffers.leg1
     LoadLegSpecFromRange leg2Range, swap.leg2, buffers.leg2
+End Sub
+
+Public Sub PriceSwapFromSheet(Optional ByVal curvesRangeName As String = "SwapCurves", _
+                              Optional ByVal fixingsRangeName As String = "SwapFixings", _
+                              Optional ByVal bucketsRangeName As String = "SwapBuckets", _
+                              Optional ByVal swapSpecRangeName As String = "SwapSpec", _
+                              Optional ByVal leg1RangeName As String = "SwapLeg1", _
+                              Optional ByVal leg2RangeName As String = "SwapLeg2", _
+                              Optional ByVal holidaysRangeName As String = "SwapHolidays", _
+                              Optional ByVal npvOutputName As String = "SwapNPVOutput", _
+                              Optional ByVal bucketOutputName As String = "SwapBucketOutput", _
+                              Optional ByVal enableDebug As Boolean = False, _
+                              Optional ByVal dryRun As Boolean = False, _
+                              Optional ByVal logSheetName As String = "")
+    Dim curveTable As Range
+    Dim fixingTable As Range
+    Dim bucketTable As Range
+    Dim swapSpecRange As Range
+    Dim leg1Range As Range
+    Dim leg2Range As Range
+    Dim holidaysRange As Range
+    Dim npvOutput As Range
+    Dim bucketOutput As Range
+    Dim logSheet As Worksheet
+    Dim curves() As VBACurveInput
+    Dim curveBuffers() As CurveBuffers
+    Dim fixings() As VBAFixingInput
+    Dim fixingBuffers() As FixingBuffers
+    Dim buckets() As VBABucketConfig
+    Dim bucketBuffers() As BucketBuffers
+    Dim swapSpec As VBASwapSpec
+    Dim swapBuffers As SwapBuffers
+    Dim holidaySerials() As Double
+    Dim holidayCount As Long
+    Dim holidayDummy As Double
+    Dim outPillarSerials() As Double
+    Dim outDeltas() As Double
+    Dim usedBuckets As Long
+    Dim maxBuckets As Long
+    Dim npv As Double
+    Dim specValues As Variant
+    Dim errorMessage As String
+
+    If Len(logSheetName) > 0 Then
+        Set logSheet = GetOrCreateLogSheet(logSheetName)
+    End If
+
+    Set curveTable = GetNamedRange(curvesRangeName)
+    Set fixingTable = GetNamedRange(fixingsRangeName)
+    Set bucketTable = GetNamedRange(bucketsRangeName)
+    Set swapSpecRange = GetNamedRange(swapSpecRangeName)
+    Set leg1Range = GetNamedRange(leg1RangeName)
+    Set leg2Range = GetNamedRange(leg2RangeName)
+    Set npvOutput = GetNamedRange(npvOutputName)
+    Set bucketOutput = GetNamedRange(bucketOutputName)
+    Set holidaysRange = TryGetNamedRange(holidaysRangeName)
+
+    If bucketOutput.Columns.Count < 2 Then
+        Err.Raise vbObjectError + 1110, , "Bucket output range must have at least 2 columns (PillarDate, Delta)"
+    End If
+
+    LoadCurvesFromTable curveTable, curves, curveBuffers
+    LoadFixingsFromTable fixingTable, fixings, fixingBuffers
+    LoadBucketsFromTable bucketTable, buckets, bucketBuffers
+
+    If swapSpecRange.Columns.Count < 4 Or swapSpecRange.Rows.Count < 1 Then
+        Err.Raise vbObjectError + 1111, , "Swap spec range must have 4 columns: SwapType, DiscountCurveId, ValuationCurveId, ValuationDate"
+    End If
+
+    specValues = swapSpecRange.Value2
+    LoadSwapSpecFromSheet CLng(specValues(1, 1)), _
+                          CStr(specValues(1, 2)), _
+                          CStr(specValues(1, 3)), _
+                          swapSpecRange.Cells(1, 4), _
+                          leg1Range, leg2Range, _
+                          swapSpec, swapBuffers
+
+    holidayCount = 0
+    If Not holidaysRange Is Nothing Then
+        If holidaysRange.Count > 0 Then
+            If holidaysRange.Columns.Count <> 1 Then
+                Err.Raise vbObjectError + 1112, , "Holiday range must be a single column"
+            End If
+            RangeToDoubleArray holidaysRange, holidaySerials
+            holidayCount = holidaysRange.Count
+        End If
+    End If
+
+    If enableDebug Then
+        SetDebugMode True
+    End If
+
+    LogMessage "PriceSwapFromSheet start", logSheet
+    LogMessage "Curves: " & UBound(curves) + 1 & ", Fixings: " & UBound(fixings) + 1 & ", Buckets: " & UBound(buckets) + 1, logSheet
+    LogMessage "SwapType=" & specValues(1, 1) & ", DiscountCurveId=" & specValues(1, 2) & ", ValuationCurveId=" & specValues(1, 3) & ", ValuationDate=" & specValues(1, 4), logSheet
+    LogMessage "HolidayCount=" & holidayCount, logSheet
+
+    If dryRun Then
+        LogMessage "Dry-run enabled; skipping DLL call.", logSheet
+        Exit Sub
+    End If
+
+    maxBuckets = bucketOutput.Rows.Count
+    If maxBuckets < 1 Then
+        Err.Raise vbObjectError + 1116, , "Bucket output range must have at least one row"
+    End If
+    ReDim outPillarSerials(0 To maxBuckets - 1)
+    ReDim outDeltas(0 To maxBuckets - 1)
+
+    If holidayCount > 0 Then
+        npv = PriceSwapAndBuckets(swapSpec, curves(0), UBound(curves) + 1, fixings(0), UBound(fixings) + 1, _
+                                  buckets(0), UBound(buckets) + 1, holidaySerials(0), holidayCount, _
+                                  outPillarSerials(0), outDeltas(0), maxBuckets, usedBuckets)
+    Else
+        npv = PriceSwapAndBuckets(swapSpec, curves(0), UBound(curves) + 1, fixings(0), UBound(fixings) + 1, _
+                                  buckets(0), UBound(buckets) + 1, holidayDummy, 0, _
+                                  outPillarSerials(0), outDeltas(0), maxBuckets, usedBuckets)
+    End If
+
+    npvOutput.Value2 = npv
+
+    If usedBuckets > maxBuckets Then
+        Err.Raise vbObjectError + 1113, , "Bucket output range too small for returned deltas"
+    End If
+
+    Dim bucketValues() As Variant
+    Dim i As Long
+    ReDim bucketValues(1 To maxBuckets, 1 To 2)
+    For i = 1 To maxBuckets
+        If i <= usedBuckets Then
+            bucketValues(i, 1) = outPillarSerials(i - 1)
+            bucketValues(i, 2) = outDeltas(i - 1)
+        Else
+            bucketValues(i, 1) = vbNullString
+            bucketValues(i, 2) = vbNullString
+        End If
+    Next i
+    bucketOutput.Value2 = bucketValues
+
+    errorMessage = PtrToStringA(IRS_LAST_ERROR())
+    If Len(errorMessage) > 0 Then
+        LogMessage "IRS_LAST_ERROR: " & errorMessage, logSheet
+    End If
+
+    LogMessage "PriceSwapFromSheet completed. UsedBuckets=" & usedBuckets & ", NPV=" & npv, logSheet
 End Sub
 
 Public Function PriceSwapAndBuckets(ByRef swapSpec As VBASwapSpec, _
