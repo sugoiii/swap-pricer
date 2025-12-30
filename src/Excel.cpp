@@ -11,6 +11,7 @@
 #include <mutex>
 #include <sstream>
 #include <cmath>
+#include <cstddef>
 
 #include <ql/quantlib.hpp>
 
@@ -171,6 +172,7 @@ static bool fillHolidayDates(const double *holidaySerials,
 //     1900-date system). Bucketed deltas are returned as parallel arrays of
 //     pillar serials and deltas per swap.
 
+#pragma pack(push, 4)
 struct VBACurveInput
 {
     const wchar_t *id;
@@ -223,6 +225,12 @@ struct VBASwapSpec
     const wchar_t *valuationCurveId;
     double valuationDateSerial;
 };
+#pragma pack(pop)
+
+static_assert(offsetof(VBASwapSpec, discountCurveId) == 156,
+              "VBASwapSpec::discountCurveId offset must match VBA 4-byte packing");
+static_assert(offsetof(VBASwapSpec, valuationDateSerial) == 172,
+              "VBASwapSpec::valuationDateSerial offset must match VBA 4-byte packing");
 
 // ---------------- Mapping helpers ----------------
 
