@@ -99,6 +99,8 @@ End Type
          ByRef outPillarSerials As Double, ByRef outDeltas As Double, _
          ByVal maxBuckets As Long, ByRef outUsedBuckets As Long) As Double
     Public Declare PtrSafe Function IRS_LAST_ERROR Lib SWAP_PRICER_DLL () As LongPtr
+    Public Declare PtrSafe Sub IRS_SET_DEBUG_MODE Lib SWAP_PRICER_DLL (ByVal enabled As Long)
+    Public Declare PtrSafe Sub IRS_SET_DEBUG_LOG_PATH Lib SWAP_PRICER_DLL (ByVal path As LongPtr)
     Private Declare PtrSafe Function lstrlenA Lib "kernel32" (ByVal lpString As LongPtr) As Long
     Private Declare PtrSafe Sub CopyMemory Lib "kernel32" Alias "RtlMoveMemory" _
         (ByVal dest As LongPtr, ByVal src As LongPtr, ByVal cb As LongPtr)
@@ -112,6 +114,8 @@ End Type
          ByRef outPillarSerials As Double, ByRef outDeltas As Double, _
          ByVal maxBuckets As Long, ByRef outUsedBuckets As Long) As Double
     Public Declare Function IRS_LAST_ERROR Lib SWAP_PRICER_DLL () As LongPtr
+    Public Declare Sub IRS_SET_DEBUG_MODE Lib SWAP_PRICER_DLL (ByVal enabled As Long)
+    Public Declare Sub IRS_SET_DEBUG_LOG_PATH Lib SWAP_PRICER_DLL (ByVal path As LongPtr)
     Private Declare Function lstrlenA Lib "kernel32" (ByVal lpString As LongPtr) As Long
     Private Declare Sub CopyMemory Lib "kernel32" Alias "RtlMoveMemory" _
         (ByVal dest As LongPtr, ByVal src As LongPtr, ByVal cb As LongPtr)
@@ -324,3 +328,10 @@ Public Function PriceSwapAndBuckets(ByRef swapSpec As VBASwapSpec, _
 
     PriceSwapAndBuckets = result
 End Function
+
+Public Sub SetDebugMode(ByVal enabled As Boolean, Optional ByVal logPath As String = "")
+    IRS_SET_DEBUG_MODE IIf(enabled, 1, 0)
+    If Len(logPath) > 0 Then
+        IRS_SET_DEBUG_LOG_PATH PtrToCString(logPath)
+    End If
+End Sub
