@@ -104,16 +104,6 @@ static bool validatePositiveSerial(double serial, const char *label, std::string
     return true;
 }
 
-static bool validateNonEmptyString(const char *value, const char *label, std::string &error)
-{
-    if (!value || !*value)
-    {
-        error = std::string(label) + " is missing";
-        return false;
-    }
-    return true;
-}
-
 static bool fillHolidayDates(const double *holidaySerials,
                              int holidayCount,
                              std::vector<Date> &holidays,
@@ -151,7 +141,7 @@ static bool fillHolidayDates(const double *holidaySerials,
 // ---------------- VBA-facing POD definitions ----------------
 // VBA should marshal arrays using SAFEARRAY/ByRef pointers and fill these
 // plain-old-data structs. All string pointers are expected to remain alive
-// for the duration of the call (BSTR or char*). Unless otherwise noted, the
+// for the duration of the call (BSTR / UTF-16 wchar_t*). Unless otherwise noted, the
 // "count" fields represent the number of elements in the corresponding array.
 //
 // VBACurveInput:
@@ -183,17 +173,17 @@ static bool fillHolidayDates(const double *holidaySerials,
 
 struct VBACurveInput
 {
-    const char *id;
+    const wchar_t *id;
     const double *pillarSerials;
     const double *discountRates;
-    const char **tenorStrings;
+    const wchar_t **tenorStrings;
     int pillarCount;
     int dayCountCode;
 };
 
 struct VBAFixingInput
 {
-    const char *indexName;
+    const wchar_t *indexName;
     const double *fixingDateSerials;
     const double *fixingRates;
     int fixingCount;
@@ -201,8 +191,8 @@ struct VBAFixingInput
 
 struct VBABucketConfig
 {
-    const char *curveId;
-    const char **tenorStrings;
+    const wchar_t *curveId;
+    const wchar_t **tenorStrings;
     int tenorCount;
     double bumpSize;
 };
@@ -218,7 +208,7 @@ struct VBALegSpec
     int dayCountCode;
     int bdcCode;
     double fixedRate;
-    const char *indexName;
+    const wchar_t *indexName;
     int fixingDays;
     double spread;
     int isCompounded;
@@ -229,14 +219,15 @@ struct VBASwapSpec
     int swapType;
     VBALegSpec leg1;
     VBALegSpec leg2;
-    const char *discountCurveId;
-    const char *valuationCurveId;
+    const wchar_t *discountCurveId;
+    const wchar_t *valuationCurveId;
     double valuationDateSerial;
 };
 
 // ---------------- Mapping helpers ----------------
 
 static thread_local std::string lastError;
+static thread_local std::wstring lastErrorWide;
 static std::mutex logMutex;
 static bool debugEnabled = false;
 static std::string debugLogPath = "swap_pricer_debug.log";
@@ -300,11 +291,62 @@ static const char *swapTypeLabel(IRS::SwapType swapType)
 static void setLastError(const std::string &message)
 {
     lastError = message;
+    int needed = MultiByteToWideChar(CP_UTF8, 0, lastError.c_str(), -1, nullptr, 0);
+    if (needed > 0)
+    {
+        lastErrorWide.assign(static_cast<std::size_t>(needed - 1), L'\0');
+        MultiByteToWideChar(CP_UTF8, 0, lastError.c_str(), -1, lastErrorWide.data(), needed);
+    }
+    else
+    {
+        lastErrorWide.clear();
+    }
 }
 
 static void setLastError(const char *message)
 {
     lastError = message ? message : "";
+    int needed = MultiByteToWideChar(CP_UTF8, 0, lastError.c_str(), -1, nullptr, 0);
+    if (needed > 0)
+    {
+        lastErrorWide.assign(static_cast<std::size_t>(needed - 1), L'\0');
+        MultiByteToWideChar(CP_UTF8, 0, lastError.c_str(), -1, lastErrorWide.data(), needed);
+    }
+    else
+    {
+        lastErrorWide.clear();
+    }
+}
+
+static bool convertWideToUtf8(const wchar_t *value,
+                              const char *label,
+                              std::string &out,
+                              std::string &error)
+{
+    if (!value || !*value)
+    {
+        error = std::string(label) + " is missing";
+        return false;
+    }
+
+    int needed = WideCharToMultiByte(CP_UTF8, 0, value, -1, nullptr, 0, nullptr, nullptr);
+    if (needed <= 0)
+    {
+        error = std::string("Failed to convert ") + label + " to UTF-8";
+        return false;
+    }
+
+    std::string buffer(static_cast<std::size_t>(needed), '\0');
+    int written = WideCharToMultiByte(CP_UTF8, 0, value, -1, buffer.data(), needed, nullptr, nullptr);
+    if (written <= 0)
+    {
+        error = std::string("Failed to convert ") + label + " to UTF-8";
+        return false;
+    }
+
+    buffer.resize(static_cast<std::size_t>(written - 1));
+    out = std::move(buffer);
+    return true;
 }
 
 static bool mapCurveDayCount(int code, DayCounter &out, std::string &error)
@@ -436,7 +478,8 @@ static bool fillCurveInput(const VBACurveInput &raw,
                            CurveInput &out,
                            std::string &error)
 {
-    if (!validateNonEmptyString(raw.id, "Curve id", error))
+    std::string curveId;
+    if (!convertWideToUtf8(raw.id, "Curve id", curveId, error))
     {
         return false;
     }
@@ -459,7 +502,7 @@ static bool fillCurveInput(const VBACurveInput &raw,
         return false;
     }
 
-    out.id = raw.id;
+    out.id = curveId;
     out.dayCounter = dc;
     out.dates.clear();
     out.discountRates.clear();
@@ -487,8 +530,14 @@ static bool fillCurveInput(const VBACurveInput &raw,
             return false;
         }
 
+        std::string tenorString;
+        if (!convertWideToUtf8(raw.tenorStrings[i], "Curve tenor string", tenorString, error))
+        {
+            return false;
+        }
+
         Period tenor;
-        if (!parseTenorString(raw.tenorStrings[i], "curve", raw.id, i, tenor, error))
+        if (!parseTenorString(tenorString, "curve", curveId, i, tenor, error))
         {
             return false;
         }
@@ -508,7 +557,8 @@ static bool fillFixings(const VBAFixingInput &raw, PricingContext &ctx, std::str
         return true; // nothing to do
     }
 
-    if (!validateNonEmptyString(raw.indexName, "Fixing index name", error))
+    std::string indexName;
+    if (!convertWideToUtf8(raw.indexName, "Fixing index name", indexName, error))
     {
         return false;
     }
@@ -535,7 +585,7 @@ static bool fillFixings(const VBAFixingInput &raw, PricingContext &ctx, std::str
         fixings.emplace_back(fromExcelSerial(raw.fixingDateSerials[i]), raw.fixingRates[i]);
     }
 
-    ctx.indexFixings[raw.indexName] = fixings;
+    ctx.indexFixings[indexName] = fixings;
     return true;
 }
 
@@ -604,15 +654,25 @@ static bool fillLeg(const VBALegSpec &raw, IRS::LegSpec &out, std::string &error
     out.startDateSerial = static_cast<long>(raw.startDateSerial);
     out.endDateSerial = static_cast<long>(raw.endDateSerial);
     out.fixed.fixedRate = raw.fixedRate;
-    out.floating.indexName = raw.indexName ? raw.indexName : "";
+    std::string indexName;
+    if (raw.indexName && *raw.indexName)
+    {
+        if (!convertWideToUtf8(raw.indexName, "Floating leg index name", indexName, error))
+        {
+            return false;
+        }
+    }
+
+    out.floating.indexName = indexName;
     out.floating.fixingDays = raw.fixingDays;
     out.floating.spread = raw.spread;
     out.floating.isCompounded = raw.isCompounded != 0;
 
     if (out.type == IRS::LegType::Ibor || out.type == IRS::LegType::Overnight)
     {
-        if (!validateNonEmptyString(raw.indexName, "Floating leg index name", error))
+        if (indexName.empty())
         {
+            error = "Floating leg index name is missing";
             return false;
         }
     }
@@ -628,8 +688,14 @@ static bool fillSwapSpec(const VBASwapSpec &raw, IRS::IRSwapSpec &out, std::stri
         return false;
     }
 
-    if (!validateNonEmptyString(raw.discountCurveId, "Discount curve id", error) ||
-        !validateNonEmptyString(raw.valuationCurveId, "Valuation curve id", error))
+    std::string discountCurveId;
+    if (!convertWideToUtf8(raw.discountCurveId, "Discount curve id", discountCurveId, error))
+    {
+        return false;
+    }
+
+    std::string valuationCurveId;
+    if (!convertWideToUtf8(raw.valuationCurveId, "Valuation curve id", valuationCurveId, error))
     {
         return false;
     }
@@ -639,8 +705,8 @@ static bool fillSwapSpec(const VBASwapSpec &raw, IRS::IRSwapSpec &out, std::stri
         return false;
     }
 
-    out.discountCurveId = raw.discountCurveId;
-    out.valuationCurveId = raw.valuationCurveId;
+    out.discountCurveId = discountCurveId;
+    out.valuationCurveId = valuationCurveId;
     out.valuationDateSerial = static_cast<long>(raw.valuationDateSerial);
 
     {
@@ -694,7 +760,8 @@ static bool fillBucketConfig(const VBABucketConfig &raw,
         return true; // optional
     }
 
-    if (!validateNonEmptyString(raw.curveId, "Bucket curve id", error))
+    std::string curveId;
+    if (!convertWideToUtf8(raw.curveId, "Bucket curve id", curveId, error))
     {
         return false;
     }
@@ -716,7 +783,7 @@ static bool fillBucketConfig(const VBABucketConfig &raw,
         return false;
     }
 
-    out.curveId = raw.curveId;
+    out.curveId = curveId;
     out.bumpSize = raw.bumpSize;
     out.buckets.clear();
     out.buckets.reserve(static_cast<std::size_t>(raw.tenorCount));
@@ -729,8 +796,14 @@ static bool fillBucketConfig(const VBABucketConfig &raw,
             return false;
         }
 
+        std::string tenorString;
+        if (!convertWideToUtf8(raw.tenorStrings[i], "Bucket tenor string", tenorString, error))
+        {
+            return false;
+        }
+
         TenorBucket bucket;
-        if (!parseTenorString(raw.tenorStrings[i], "bucket", raw.curveId, i, bucket.tenor, error))
+        if (!parseTenorString(tenorString, "bucket", curveId, i, bucket.tenor, error))
         {
             return false;
         }
@@ -843,8 +916,14 @@ static bool buildPricingContext(double valuationDateSerial,
 
         if (fixingInputs && fixingInputs[i].indexName)
         {
+            std::string fixingName;
+            std::string conversionError;
+            if (!convertWideToUtf8(fixingInputs[i].indexName, "Fixing index name", fixingName, conversionError))
+            {
+                fixingName = "<invalid>";
+            }
             std::ostringstream details;
-            details << "buildPricingContext: fixings index=" << fixingInputs[i].indexName
+            details << "buildPricingContext: fixings index=" << fixingName
                     << " count=" << fixingInputs[i].fixingCount;
             logDebugLine(details.str());
         }
@@ -947,6 +1026,7 @@ extern "C" __declspec(dllexport) double __stdcall IRS_PRICE_AND_BUCKETS(
     try
     {
         lastError.clear();
+        lastErrorWide.clear();
         if (!swapSpec)
         {
             return failAndReturnNaN("Swap spec is null", outPillarSerials, outDeltas, maxBuckets, outUsedBuckets);
@@ -1003,9 +1083,9 @@ extern "C" __declspec(dllexport) double __stdcall IRS_PRICE_AND_BUCKETS(
     }
 }
 
-extern "C" __declspec(dllexport) const char *__stdcall IRS_LAST_ERROR()
+extern "C" __declspec(dllexport) const wchar_t *__stdcall IRS_LAST_ERROR()
 {
-    return lastError.c_str();
+    return lastErrorWide.c_str();
 }
 
 extern "C" __declspec(dllexport) int __stdcall IRS_IS_NAN(double value)
@@ -1018,11 +1098,14 @@ extern "C" __declspec(dllexport) void __stdcall IRS_SET_DEBUG_MODE(int enabled)
     debugEnabled = enabled != 0;
 }
 
-extern "C" __declspec(dllexport) void __stdcall IRS_SET_DEBUG_LOG_PATH(const char *path)
+extern "C" __declspec(dllexport) void __stdcall IRS_SET_DEBUG_LOG_PATH(const wchar_t *path)
 {
-    if (path && *path)
+    std::string converted;
+    std::string conversionError;
+    if (path && *path &&
+        convertWideToUtf8(path, "Debug log path", converted, conversionError))
     {
-        debugLogPath = path;
+        debugLogPath = converted;
     }
 }
 
