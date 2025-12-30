@@ -45,9 +45,38 @@ static double toExcelSerial(const Date &d)
     return static_cast<double>(d.serialNumber());
 }
 
-static Period parseTenorString(const std::string &s)
+static bool parseTenorString(const std::string &tenor,
+                             const char *contextLabel,
+                             const std::string &contextId,
+                             int index,
+                             Period &out,
+                             std::string &error)
 {
-    return PeriodParser::parse(s);
+    try
+    {
+        out = PeriodParser::parse(tenor);
+        return true;
+    }
+    catch (const std::exception &ex)
+    {
+        std::ostringstream message;
+        message << "Invalid tenor string '" << tenor << "' for " << contextLabel
+                << " '" << contextId << "' at index " << index;
+        if (ex.what() && *ex.what())
+        {
+            message << ": " << ex.what();
+        }
+        error = message.str();
+        return false;
+    }
+    catch (...)
+    {
+        std::ostringstream message;
+        message << "Invalid tenor string '" << tenor << "' for " << contextLabel
+                << " '" << contextId << "' at index " << index;
+        error = message.str();
+        return false;
+    }
 }
 
 static bool isFiniteNumber(double value)
@@ -278,7 +307,7 @@ static void setLastError(const char *message)
     lastError = message ? message : "";
 }
 
-static bool mapCurveDayCount(int code, DayCounter &out)
+static bool mapCurveDayCount(int code, DayCounter &out, std::string &error)
 {
     switch (code)
     {
@@ -289,11 +318,12 @@ static bool mapCurveDayCount(int code, DayCounter &out)
         out = Actual360();
         return true;
     default:
+        error = "Unsupported curve day count code: " + std::to_string(code);
         return false;
     }
 }
 
-static bool mapLegDayCount(int code, IRS::DayCount &out)
+static bool mapLegDayCount(int code, IRS::DayCount &out, std::string &error)
 {
     switch (code)
     {
@@ -304,11 +334,12 @@ static bool mapLegDayCount(int code, IRS::DayCount &out)
         out = IRS::DayCount::Actual360;
         return true;
     default:
+        error = "Unsupported leg day count code: " + std::to_string(code);
         return false;
     }
 }
 
-static bool mapBDC(int code, IRS::BusinessDayConv &out)
+static bool mapBDC(int code, IRS::BusinessDayConv &out, std::string &error)
 {
     switch (code)
     {
@@ -322,11 +353,12 @@ static bool mapBDC(int code, IRS::BusinessDayConv &out)
         out = IRS::BusinessDayConv::Preceding;
         return true;
     default:
+        error = "Unsupported business day convention code: " + std::to_string(code);
         return false;
     }
 }
 
-static bool mapFrequency(int code, IRS::Frequency &out)
+static bool mapFrequency(int code, IRS::Frequency &out, std::string &error)
 {
     switch (code)
     {
@@ -343,11 +375,12 @@ static bool mapFrequency(int code, IRS::Frequency &out)
         out = IRS::Frequency::Monthly;
         return true;
     default:
+        error = "Unsupported frequency code: " + std::to_string(code);
         return false;
     }
 }
 
-static bool mapLegType(int code, IRS::LegType &out)
+static bool mapLegType(int code, IRS::LegType &out, std::string &error)
 {
     switch (code)
     {
@@ -361,11 +394,12 @@ static bool mapLegType(int code, IRS::LegType &out)
         out = IRS::LegType::Overnight;
         return true;
     default:
+        error = "Unsupported leg type code: " + std::to_string(code);
         return false;
     }
 }
 
-static bool mapPayReceive(int code, IRS::PayReceive &out)
+static bool mapPayReceive(int code, IRS::PayReceive &out, std::string &error)
 {
     switch (code)
     {
@@ -376,11 +410,12 @@ static bool mapPayReceive(int code, IRS::PayReceive &out)
         out = IRS::PayReceive::Receiver;
         return true;
     default:
+        error = "Unsupported pay/receive code: " + std::to_string(code);
         return false;
     }
 }
 
-static bool mapSwapType(int code, IRS::SwapType &out)
+static bool mapSwapType(int code, IRS::SwapType &out, std::string &error)
 {
     switch (code)
     {
@@ -391,6 +426,7 @@ static bool mapSwapType(int code, IRS::SwapType &out)
         out = IRS::SwapType::OvernightIndexed;
         return true;
     default:
+        error = "Unsupported swap type code: " + std::to_string(code);
         return false;
     }
 }
@@ -418,9 +454,8 @@ static bool fillCurveInput(const VBACurveInput &raw,
     }
 
     DayCounter dc;
-    if (!mapCurveDayCount(raw.dayCountCode, dc))
+    if (!mapCurveDayCount(raw.dayCountCode, dc, error))
     {
-        error = "Unsupported curve day count";
         return false;
     }
 
@@ -452,9 +487,15 @@ static bool fillCurveInput(const VBACurveInput &raw,
             return false;
         }
 
+        Period tenor;
+        if (!parseTenorString(raw.tenorStrings[i], "curve", raw.id, i, tenor, error))
+        {
+            return false;
+        }
+
         out.dates.push_back(calendar.adjust(fromExcelSerial(raw.pillarSerials[i])));
         out.discountRates.push_back(raw.discountRates[i]);
-        out.tenors.push_back(parseTenorString(raw.tenorStrings[i]));
+        out.tenors.push_back(tenor);
     }
 
     return true;
@@ -518,33 +559,28 @@ static bool fillLeg(const VBALegSpec &raw, IRS::LegSpec &out, std::string &error
         return false;
     }
 
-    if (!mapLegType(raw.legType, out.type))
+    if (!mapLegType(raw.legType, out.type, error))
     {
-        error = "Unsupported leg type";
         return false;
     }
 
-    if (!mapPayReceive(raw.payReceive, out.payReceive))
+    if (!mapPayReceive(raw.payReceive, out.payReceive, error))
     {
-        error = "Unsupported pay/receive flag";
         return false;
     }
 
-    if (!mapFrequency(raw.frequencyCode, out.tenor.frequency))
+    if (!mapFrequency(raw.frequencyCode, out.tenor.frequency, error))
     {
-        error = "Unsupported frequency";
         return false;
     }
 
-    if (!mapLegDayCount(raw.dayCountCode, out.tenor.daycount))
+    if (!mapLegDayCount(raw.dayCountCode, out.tenor.daycount, error))
     {
-        error = "Unsupported leg day count";
         return false;
     }
 
-    if (!mapBDC(raw.bdcCode, out.tenor.bdc))
+    if (!mapBDC(raw.bdcCode, out.tenor.bdc, error))
     {
-        error = "Unsupported business day convention";
         return false;
     }
 
@@ -586,9 +622,8 @@ static bool fillLeg(const VBALegSpec &raw, IRS::LegSpec &out, std::string &error
 
 static bool fillSwapSpec(const VBASwapSpec &raw, IRS::IRSwapSpec &out, std::string &error)
 {
-    if (!mapSwapType(raw.swapType, out.swapType))
+    if (!mapSwapType(raw.swapType, out.swapType, error))
     {
-        error = "Unsupported swap type";
         setLastError(error);
         return false;
     }
@@ -695,7 +730,10 @@ static bool fillBucketConfig(const VBABucketConfig &raw,
         }
 
         TenorBucket bucket;
-        bucket.tenor = parseTenorString(raw.tenorStrings[i]);
+        if (!parseTenorString(raw.tenorStrings[i], "bucket", raw.curveId, i, bucket.tenor, error))
+        {
+            return false;
+        }
         bucket.date = ctx.calendar.adjust(ctx.calendar.advance(ctx.valuationDate, bucket.tenor, Following), Following);
         out.buckets.push_back(bucket);
     }
