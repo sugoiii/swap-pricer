@@ -649,6 +649,8 @@ Public Sub PriceSwapFromSheet(Optional ByVal curvesRangeName As String = "SwapCu
     Dim npvCell As Range
     Dim bucketRange As Range
     Dim i As Long
+    Dim expectedBucketRows As Long
+    Dim bucketConfigIndex As Long
     Dim errorMessage As String
 
     If Len(logSheetName) > 0 Then
@@ -693,6 +695,13 @@ Public Sub PriceSwapFromSheet(Optional ByVal curvesRangeName As String = "SwapCu
     bucketRowsPerSwap = bucketOutput.Rows.Count \ swapCount
     If bucketRowsPerSwap < 1 Then
         Err.Raise vbObjectError + 1121, , "SwapBucketOutput range must have at least one row per swap"
+    End If
+    expectedBucketRows = 0
+    For bucketConfigIndex = 0 To UBound(buckets)
+        expectedBucketRows = expectedBucketRows + buckets(bucketConfigIndex).tenorCount
+    Next bucketConfigIndex
+    If bucketRowsPerSwap < expectedBucketRows Then
+        Err.Raise vbObjectError + 1122, , "SwapBucketOutput range must have at least " & expectedBucketRows & " rows per swap to hold bucket deltas"
     End If
 
     specValues = swapSpecRange.Value2
