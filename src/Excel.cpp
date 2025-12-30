@@ -10,6 +10,7 @@
 #include <fstream>
 #include <mutex>
 #include <sstream>
+#include <cmath>
 
 #include <ql/quantlib.hpp>
 
@@ -27,7 +28,15 @@ using namespace QuantLib;
 // adapt if you really need "true" Excel serials later.
 static Date fromExcelSerial(double serial)
 {
+    if (!std::isfinite(serial) || serial <= 0.0)
+    {
+        return Date();
+    }
     long s = static_cast<long>(serial);
+    if (s <= 0)
+    {
+        return Date();
+    }
     return Date(s);
 }
 
@@ -41,21 +50,69 @@ static Period parseTenorString(const std::string &s)
     return PeriodParser::parse(s);
 }
 
-static std::vector<Date> toHolidayDates(const double *holidaySerials, int holidayCount)
+static bool isFiniteNumber(double value)
 {
-    std::vector<Date> holidays;
-    if (!holidaySerials || holidayCount <= 0)
+    return std::isfinite(value);
+}
+
+static bool validateFinite(const char *label, double value, std::string &error)
+{
+    if (!isFiniteNumber(value))
     {
-        return holidays;
+        error = std::string(label) + " must be a finite number";
+        return false;
+    }
+    return true;
+}
+
+static bool validatePositiveSerial(double serial, const char *label, std::string &error)
+{
+    if (!isFiniteNumber(serial) || serial <= 0.0)
+    {
+        error = std::string(label) + " must be a positive serial";
+        return false;
+    }
+    return true;
+}
+
+static bool validateNonEmptyString(const char *value, const char *label, std::string &error)
+{
+    if (!value || !*value)
+    {
+        error = std::string(label) + " is missing";
+        return false;
+    }
+    return true;
+}
+
+static bool fillHolidayDates(const double *holidaySerials,
+                             int holidayCount,
+                             std::vector<Date> &holidays,
+                             std::string &error)
+{
+    holidays.clear();
+    if (holidayCount <= 0)
+    {
+        return true;
+    }
+
+    if (!holidaySerials)
+    {
+        error = "Holiday serials are missing";
+        return false;
     }
 
     holidays.reserve(static_cast<std::size_t>(holidayCount));
     for (int i = 0; i < holidayCount; ++i)
     {
+        if (!validatePositiveSerial(holidaySerials[i], "Holiday date", error))
+        {
+            return false;
+        }
         holidays.push_back(fromExcelSerial(holidaySerials[i]));
     }
 
-    return holidays;
+    return true;
 }
 
 #ifdef _WIN32
@@ -343,21 +400,20 @@ static bool fillCurveInput(const VBACurveInput &raw,
                            CurveInput &out,
                            std::string &error)
 {
-    if (!raw.id)
+    if (!validateNonEmptyString(raw.id, "Curve id", error))
     {
-        error = "Curve id is null";
         return false;
     }
 
-    if (raw.pillarCount <= 0 || !raw.pillarSerials || !raw.discountRates)
+    if (raw.pillarCount <= 0)
     {
-        error = "Curve pillars/rates are missing";
+        error = "Curve pillar count must be positive";
         return false;
     }
 
-    if (!raw.tenorStrings)
+    if (!raw.pillarSerials || !raw.discountRates || !raw.tenorStrings)
     {
-        error = "Curve tenors are missing";
+        error = "Curve pillar arrays are missing";
         return false;
     }
 
@@ -380,6 +436,22 @@ static bool fillCurveInput(const VBACurveInput &raw,
 
     for (int i = 0; i < raw.pillarCount; ++i)
     {
+        if (!validatePositiveSerial(raw.pillarSerials[i], "Curve pillar date", error))
+        {
+            return false;
+        }
+
+        if (!validateFinite("Curve discount rate", raw.discountRates[i], error))
+        {
+            return false;
+        }
+
+        if (!raw.tenorStrings[i])
+        {
+            error = "Curve tenor string is null";
+            return false;
+        }
+
         out.dates.push_back(calendar.adjust(fromExcelSerial(raw.pillarSerials[i])));
         out.discountRates.push_back(raw.discountRates[i]);
         out.tenors.push_back(parseTenorString(raw.tenorStrings[i]));
@@ -390,9 +462,14 @@ static bool fillCurveInput(const VBACurveInput &raw,
 
 static bool fillFixings(const VBAFixingInput &raw, PricingContext &ctx, std::string &error)
 {
-    if (!raw.indexName || raw.fixingCount <= 0)
+    if (raw.fixingCount <= 0)
     {
         return true; // nothing to do
+    }
+
+    if (!validateNonEmptyString(raw.indexName, "Fixing index name", error))
+    {
+        return false;
     }
 
     if (!raw.fixingDateSerials || !raw.fixingRates)
@@ -406,6 +483,14 @@ static bool fillFixings(const VBAFixingInput &raw, PricingContext &ctx, std::str
 
     for (int i = 0; i < raw.fixingCount; ++i)
     {
+        if (!validatePositiveSerial(raw.fixingDateSerials[i], "Fixing date", error))
+        {
+            return false;
+        }
+        if (!validateFinite("Fixing rate", raw.fixingRates[i], error))
+        {
+            return false;
+        }
         fixings.emplace_back(fromExcelSerial(raw.fixingDateSerials[i]), raw.fixingRates[i]);
     }
 
@@ -415,9 +500,15 @@ static bool fillFixings(const VBAFixingInput &raw, PricingContext &ctx, std::str
 
 static bool fillLeg(const VBALegSpec &raw, IRS::LegSpec &out, std::string &error)
 {
-    if (raw.notional <= 0.0)
+    if (!validateFinite("Leg notional", raw.notional, error) || raw.notional <= 0.0)
     {
         error = "Leg notional must be positive";
+        return false;
+    }
+
+    if (!validatePositiveSerial(raw.startDateSerial, "Leg start date", error) ||
+        !validatePositiveSerial(raw.endDateSerial, "Leg end date", error))
+    {
         return false;
     }
 
@@ -457,6 +548,22 @@ static bool fillLeg(const VBALegSpec &raw, IRS::LegSpec &out, std::string &error
         return false;
     }
 
+    if (!validateFinite("Leg fixed rate", raw.fixedRate, error))
+    {
+        return false;
+    }
+
+    if (!validateFinite("Leg spread", raw.spread, error))
+    {
+        return false;
+    }
+
+    if (raw.fixingDays < 0)
+    {
+        error = "Leg fixing days must be non-negative";
+        return false;
+    }
+
     out.notional = raw.notional;
     out.startDateSerial = static_cast<long>(raw.startDateSerial);
     out.endDateSerial = static_cast<long>(raw.endDateSerial);
@@ -466,10 +573,12 @@ static bool fillLeg(const VBALegSpec &raw, IRS::LegSpec &out, std::string &error
     out.floating.spread = raw.spread;
     out.floating.isCompounded = raw.isCompounded != 0;
 
-    if ((out.type == IRS::LegType::Ibor || out.type == IRS::LegType::Overnight) && out.floating.indexName.empty())
+    if (out.type == IRS::LegType::Ibor || out.type == IRS::LegType::Overnight)
     {
-        error = "Floating leg requires an index name";
-        return false;
+        if (!validateNonEmptyString(raw.indexName, "Floating leg index name", error))
+        {
+            return false;
+        }
     }
 
     return true;
@@ -484,17 +593,14 @@ static bool fillSwapSpec(const VBASwapSpec &raw, IRS::IRSwapSpec &out, std::stri
         return false;
     }
 
-    if (!raw.discountCurveId || !raw.valuationCurveId)
+    if (!validateNonEmptyString(raw.discountCurveId, "Discount curve id", error) ||
+        !validateNonEmptyString(raw.valuationCurveId, "Valuation curve id", error))
     {
-        error = "Swap requires discount and valuation curve ids";
-        setLastError(error);
         return false;
     }
 
-    if (raw.valuationDateSerial <= 0)
+    if (!validatePositiveSerial(raw.valuationDateSerial, "Valuation date", error))
     {
-        error = "Valuation date is missing";
-        setLastError(error);
         return false;
     }
 
@@ -548,9 +654,25 @@ static bool fillBucketConfig(const VBABucketConfig &raw,
                              CurveBucketConfig &out,
                              std::string &error)
 {
-    if (!raw.curveId || !raw.tenorStrings || raw.tenorCount <= 0)
+    if (raw.tenorCount <= 0)
     {
         return true; // optional
+    }
+
+    if (!validateNonEmptyString(raw.curveId, "Bucket curve id", error))
+    {
+        return false;
+    }
+
+    if (!raw.tenorStrings)
+    {
+        error = "Bucket tenor strings are missing";
+        return false;
+    }
+
+    if (!validateFinite("Bucket bump size", raw.bumpSize, error))
+    {
+        return false;
     }
 
     if (raw.bumpSize == 0.0)
@@ -566,6 +688,12 @@ static bool fillBucketConfig(const VBABucketConfig &raw,
 
     for (int i = 0; i < raw.tenorCount; ++i)
     {
+        if (!raw.tenorStrings[i])
+        {
+            error = "Bucket tenor string is null";
+            return false;
+        }
+
         TenorBucket bucket;
         bucket.tenor = parseTenorString(raw.tenorStrings[i]);
         bucket.date = ctx.calendar.adjust(ctx.calendar.advance(ctx.valuationDate, bucket.tenor, Following), Following);
@@ -589,7 +717,16 @@ static bool buildPricingContext(double valuationDateSerial,
 {
     ctx = PricingContext();
 
-    std::vector<Date> holidays = toHolidayDates(holidaySerials, holidayCount);
+    if (!validatePositiveSerial(valuationDateSerial, "Valuation date", error))
+    {
+        return false;
+    }
+
+    std::vector<Date> holidays;
+    if (!fillHolidayDates(holidaySerials, holidayCount, holidays, error))
+    {
+        return false;
+    }
     ctx.calendar = buildCalendar(holidays);
     ctx.valuationDate = ctx.calendar.adjust(fromExcelSerial(valuationDateSerial));
     Settings::instance().evaluationDate() = ctx.valuationDate;
@@ -601,9 +738,30 @@ static bool buildPricingContext(double valuationDateSerial,
         logDebugLine(details.str());
     }
 
-    if (!curveInputs || curveCount <= 0)
+    if (curveCount <= 0)
     {
         error = "No curves supplied";
+        setLastError(error);
+        return false;
+    }
+
+    if (!curveInputs)
+    {
+        error = "Curve inputs are missing";
+        setLastError(error);
+        return false;
+    }
+
+    if (fixingCount > 0 && !fixingInputs)
+    {
+        error = "Fixing inputs are missing";
+        setLastError(error);
+        return false;
+    }
+
+    if (bucketCount > 0 && !bucketInputs)
+    {
+        error = "Bucket inputs are missing";
         setLastError(error);
         return false;
     }
@@ -720,6 +878,17 @@ static void zeroBuckets(double *outPillarSerials,
     }
 }
 
+static double failAndReturnNaN(const std::string &message,
+                               double *outPillarSerials,
+                               double *outDeltas,
+                               int maxBuckets,
+                               int *outUsedBuckets)
+{
+    setLastError(message);
+    zeroBuckets(outPillarSerials, outDeltas, maxBuckets, outUsedBuckets);
+    return std::numeric_limits<double>::quiet_NaN();
+}
+
 // ---------------- Exported functions ----------------
 
 extern "C" __declspec(dllexport) double __stdcall IRS_PRICE_AND_BUCKETS(
@@ -742,18 +911,14 @@ extern "C" __declspec(dllexport) double __stdcall IRS_PRICE_AND_BUCKETS(
         lastError.clear();
         if (!swapSpec)
         {
-            setLastError("Swap spec is null");
-            zeroBuckets(outPillarSerials, outDeltas, maxBuckets, outUsedBuckets);
-            return std::numeric_limits<double>::quiet_NaN();
+            return failAndReturnNaN("Swap spec is null", outPillarSerials, outDeltas, maxBuckets, outUsedBuckets);
         }
 
         IRSwapSpec spec;
         std::string error;
         if (!fillSwapSpec(*swapSpec, spec, error))
         {
-            setLastError(error);
-            zeroBuckets(outPillarSerials, outDeltas, maxBuckets, outUsedBuckets);
-            return std::numeric_limits<double>::quiet_NaN();
+            return failAndReturnNaN(error, outPillarSerials, outDeltas, maxBuckets, outUsedBuckets);
         }
 
         PricingContext ctx;
@@ -769,9 +934,7 @@ extern "C" __declspec(dllexport) double __stdcall IRS_PRICE_AND_BUCKETS(
                                  ctx,
                                  error))
         {
-            setLastError(error);
-            zeroBuckets(outPillarSerials, outDeltas, maxBuckets, outUsedBuckets);
-            return std::numeric_limits<double>::quiet_NaN();
+            return failAndReturnNaN(error, outPillarSerials, outDeltas, maxBuckets, outUsedBuckets);
         }
 
         IRSwapPricer pricer;
