@@ -98,6 +98,10 @@ End Type
          ByRef holidaySerials As Double, ByVal holidayCount As Long, _
          ByRef outPillarSerials As Double, ByRef outDeltas As Double, _
          ByVal maxBuckets As Long, ByRef outUsedBuckets As Long) As Double
+    Public Declare PtrSafe Function IRS_LAST_ERROR Lib SWAP_PRICER_DLL () As LongPtr
+    Private Declare PtrSafe Function lstrlenA Lib "kernel32" (ByVal lpString As LongPtr) As Long
+    Private Declare PtrSafe Sub CopyMemory Lib "kernel32" Alias "RtlMoveMemory" _
+        (ByVal dest As LongPtr, ByVal src As LongPtr, ByVal cb As LongPtr)
 #Else
     Public Declare Function IRS_PRICE_AND_BUCKETS Lib SWAP_PRICER_DLL _
         (ByRef swapSpec As VBASwapSpec, _
@@ -107,12 +111,36 @@ End Type
          ByRef holidaySerials As Double, ByVal holidayCount As Long, _
          ByRef outPillarSerials As Double, ByRef outDeltas As Double, _
          ByVal maxBuckets As Long, ByRef outUsedBuckets As Long) As Double
+    Public Declare Function IRS_LAST_ERROR Lib SWAP_PRICER_DLL () As LongPtr
+    Private Declare Function lstrlenA Lib "kernel32" (ByVal lpString As LongPtr) As Long
+    Private Declare Sub CopyMemory Lib "kernel32" Alias "RtlMoveMemory" _
+        (ByVal dest As LongPtr, ByVal src As LongPtr, ByVal cb As LongPtr)
 #End If
 
 ' ====== Helpers ======
 
 Private Function PtrToCString(ByVal s As String) As LongPtr
     PtrToCString = StrPtr(s)
+End Function
+
+Private Function PtrToStringA(ByVal ptr As LongPtr) As String
+    Dim length As Long
+    Dim bytes() As Byte
+
+    If ptr = 0 Then
+        PtrToStringA = vbNullString
+        Exit Function
+    End If
+
+    length = lstrlenA(ptr)
+    If length <= 0 Then
+        PtrToStringA = vbNullString
+        Exit Function
+    End If
+
+    ReDim bytes(0 To length - 1)
+    CopyMemory VarPtr(bytes(0)), ptr, length
+    PtrToStringA = StrConv(bytes, vbUnicode)
 End Function
 
 Private Sub RangeToDoubleArray(ByVal source As Range, ByRef output() As Double)
@@ -270,3 +298,29 @@ Public Sub LoadSwapSpecFromSheet(ByVal swapType As Long, _
     LoadLegSpecFromRange leg2Range, swap.leg2, buffers.leg2
 End Sub
 
+Public Function PriceSwapAndBuckets(ByRef swapSpec As VBASwapSpec, _
+                                    ByRef curveInputs As VBACurveInput, ByVal curveCount As Long, _
+                                    ByRef fixingInputs As VBAFixingInput, ByVal fixingCount As Long, _
+                                    ByRef bucketInputs As VBABucketConfig, ByVal bucketCount As Long, _
+                                    ByRef holidaySerials As Double, ByVal holidayCount As Long, _
+                                    ByRef outPillarSerials As Double, ByRef outDeltas As Double, _
+                                    ByVal maxBuckets As Long, ByRef outUsedBuckets As Long) As Double
+    Dim result As Double
+    Dim errorPtr As LongPtr
+    Dim errorMessage As String
+
+    result = IRS_PRICE_AND_BUCKETS(swapSpec, curveInputs, curveCount, fixingInputs, fixingCount, _
+                                   bucketInputs, bucketCount, holidaySerials, holidayCount, _
+                                   outPillarSerials, outDeltas, maxBuckets, outUsedBuckets)
+
+    If result <> result Then
+        errorPtr = IRS_LAST_ERROR()
+        errorMessage = PtrToStringA(errorPtr)
+        If Len(errorMessage) = 0 Then
+            errorMessage = "Unknown error from IRS_PRICE_AND_BUCKETS"
+        End If
+        Err.Raise vbObjectError + 2000, , errorMessage
+    End If
+
+    PriceSwapAndBuckets = result
+End Function

@@ -3,6 +3,7 @@
 // Windows-only Excel-DLL bridge for IRS pricing + bucketed delta.
 // On non-Windows, this file compiles to nothing useful (no exports).
 
+#include <exception>
 #include <string>
 #include <vector>
 #include <limits>
@@ -145,6 +146,18 @@ struct VBASwapSpec
 };
 
 // ---------------- Mapping helpers ----------------
+
+static thread_local std::string lastError;
+
+static void setLastError(const std::string &message)
+{
+    lastError = message;
+}
+
+static void setLastError(const char *message)
+{
+    lastError = message ? message : "";
+}
 
 static bool mapCurveDayCount(int code, DayCounter &out)
 {
@@ -405,18 +418,21 @@ static bool fillSwapSpec(const VBASwapSpec &raw, IRS::IRSwapSpec &out, std::stri
     if (!mapSwapType(raw.swapType, out.swapType))
     {
         error = "Unsupported swap type";
+        setLastError(error);
         return false;
     }
 
     if (!raw.discountCurveId || !raw.valuationCurveId)
     {
         error = "Swap requires discount and valuation curve ids";
+        setLastError(error);
         return false;
     }
 
     if (raw.valuationDateSerial <= 0)
     {
         error = "Valuation date is missing";
+        setLastError(error);
         return false;
     }
 
@@ -426,11 +442,13 @@ static bool fillSwapSpec(const VBASwapSpec &raw, IRS::IRSwapSpec &out, std::stri
 
     if (!fillLeg(raw.leg1, out.leg1, error))
     {
+        setLastError(error);
         return false;
     }
 
     if (!fillLeg(raw.leg2, out.leg2, error))
     {
+        setLastError(error);
         return false;
     }
 
@@ -491,6 +509,7 @@ static bool buildPricingContext(double valuationDateSerial,
     if (!curveInputs || curveCount <= 0)
     {
         error = "No curves supplied";
+        setLastError(error);
         return false;
     }
 
@@ -499,6 +518,7 @@ static bool buildPricingContext(double valuationDateSerial,
         CurveInput input;
         if (!fillCurveInput(curveInputs[i], ctx.calendar, input, error))
         {
+            setLastError(error);
             return false;
         }
 
@@ -510,6 +530,7 @@ static bool buildPricingContext(double valuationDateSerial,
     {
         if (!fillFixings(fixingInputs[i], ctx, error))
         {
+            setLastError(error);
             return false;
         }
     }
@@ -519,6 +540,7 @@ static bool buildPricingContext(double valuationDateSerial,
         CurveBucketConfig cfg;
         if (!fillBucketConfig(bucketInputs[i], ctx, cfg, error))
         {
+            setLastError(error);
             return false;
         }
 
@@ -593,8 +615,10 @@ extern "C" __declspec(dllexport) double __stdcall IRS_PRICE_AND_BUCKETS(
 {
     try
     {
+        lastError.clear();
         if (!swapSpec)
         {
+            setLastError("Swap spec is null");
             zeroBuckets(outPillarSerials, outDeltas, maxBuckets, outUsedBuckets);
             return std::numeric_limits<double>::quiet_NaN();
         }
@@ -603,6 +627,7 @@ extern "C" __declspec(dllexport) double __stdcall IRS_PRICE_AND_BUCKETS(
         std::string error;
         if (!fillSwapSpec(*swapSpec, spec, error))
         {
+            setLastError(error);
             zeroBuckets(outPillarSerials, outDeltas, maxBuckets, outUsedBuckets);
             return std::numeric_limits<double>::quiet_NaN();
         }
@@ -620,6 +645,7 @@ extern "C" __declspec(dllexport) double __stdcall IRS_PRICE_AND_BUCKETS(
                                  ctx,
                                  error))
         {
+            setLastError(error);
             zeroBuckets(outPillarSerials, outDeltas, maxBuckets, outUsedBuckets);
             return std::numeric_limits<double>::quiet_NaN();
         }
@@ -638,11 +664,23 @@ extern "C" __declspec(dllexport) double __stdcall IRS_PRICE_AND_BUCKETS(
 
         return result.npv;
     }
-    catch (...)
+    catch (const std::exception &ex)
     {
+        setLastError(ex.what());
         zeroBuckets(outPillarSerials, outDeltas, maxBuckets, outUsedBuckets);
         return std::numeric_limits<double>::quiet_NaN();
     }
+    catch (...)
+    {
+        setLastError("Unhandled exception in IRS_PRICE_AND_BUCKETS");
+        zeroBuckets(outPillarSerials, outDeltas, maxBuckets, outUsedBuckets);
+        return std::numeric_limits<double>::quiet_NaN();
+    }
+}
+
+extern "C" __declspec(dllexport) const char *__stdcall IRS_LAST_ERROR()
+{
+    return lastError.c_str();
 }
 
 extern "C" __declspec(dllexport) void __stdcall IRS_PRICE_AND_BUCKETS_BATCH(
