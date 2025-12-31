@@ -90,6 +90,17 @@ Public Type SwapBuffers
     leg2 As LegBuffers
 End Type
 
+' ====== Module-level buffers to keep data alive across DLL calls ======
+
+Private mCurves() As VBACurveInput
+Private mCurveBuffers() As CurveBuffers
+Private mFixings() As VBAFixingInput
+Private mFixingBuffers() As FixingBuffers
+Private mBuckets() As VBABucketConfig
+Private mBucketBuffers() As BucketBuffers
+Private mSwapBuffers As SwapBuffers
+Private mHolidaySerials() As Double
+
 ' ====== DLL import ======
 
 #If VBA7 Then
@@ -641,15 +652,7 @@ Public Sub PriceSwapFromSheet(Optional ByVal curvesRangeName As String = "SwapCu
     Dim npvOutput As Range
     Dim bucketOutput As Range
     Dim logSheet As Worksheet
-    Dim curves() As VBACurveInput
-    Dim curveBuffers() As CurveBuffers
-    Dim fixings() As VBAFixingInput
-    Dim fixingBuffers() As FixingBuffers
-    Dim buckets() As VBABucketConfig
-    Dim bucketBuffers() As BucketBuffers
     Dim swapSpec As VBASwapSpec
-    Dim swapBuffers As SwapBuffers
-    Dim holidaySerials() As Double
     Dim holidayCount As Long
     Dim holidaySerialsPtr As LongPtr
     Dim outPillarSerials() As Double
@@ -687,9 +690,10 @@ Public Sub PriceSwapFromSheet(Optional ByVal curvesRangeName As String = "SwapCu
         Err.Raise vbObjectError + 1110, , "Bucket output range must have at least 2 columns (PillarDate, Delta)"
     End If
 
-    LoadCurvesFromTable curveTable, curves, curveBuffers
-    LoadFixingsFromTable fixingTable, fixings, fixingBuffers
-    LoadBucketsFromTable bucketTable, buckets, bucketBuffers
+    LoadCurvesFromTable curveTable, mCurves, mCurveBuffers
+    LoadFixingsFromTable fixingTable, mFixings, mFixingBuffers
+    LoadBucketsFromTable bucketTable, mBuckets, mBucketBuffers
+    ' Do not modify mCurveBuffers/mFixingBuffers/mBucketBuffers after BuildStringPointers until DLL calls complete.
 
     If swapSpecRange.Columns.Count < 4 Or swapSpecRange.Rows.Count < 1 Then
         Err.Raise vbObjectError + 1111, , "Swap spec range must have 4 columns: SwapType, DiscountCurveId, ValuationCurveId, ValuationDate"
@@ -713,8 +717,8 @@ Public Sub PriceSwapFromSheet(Optional ByVal curvesRangeName As String = "SwapCu
         Err.Raise vbObjectError + 1121, , "SwapBucketOutput range must have at least one row per swap"
     End If
     expectedBucketRows = 0
-    For bucketConfigIndex = 0 To UBound(buckets)
-        expectedBucketRows = expectedBucketRows + buckets(bucketConfigIndex).tenorCount
+    For bucketConfigIndex = 0 To UBound(mBuckets)
+        expectedBucketRows = expectedBucketRows + mBuckets(bucketConfigIndex).tenorCount
     Next bucketConfigIndex
     If bucketRowsPerSwap < expectedBucketRows Then
         Err.Raise vbObjectError + 1122, , "SwapBucketOutput range must have at least " & expectedBucketRows & " rows per swap to hold bucket deltas"
@@ -728,12 +732,12 @@ Public Sub PriceSwapFromSheet(Optional ByVal curvesRangeName As String = "SwapCu
             If holidaysRange.Columns.Count <> 1 Then
                 Err.Raise vbObjectError + 1112, , "Holiday range must be a single column"
             End If
-            RangeToDoubleArray holidaysRange, holidaySerials
+            RangeToDoubleArray holidaysRange, mHolidaySerials
             holidayCount = holidaysRange.Count
         End If
     End If
     If holidayCount > 0 Then
-        holidaySerialsPtr = VarPtr(holidaySerials(0))
+        holidaySerialsPtr = VarPtr(mHolidaySerials(0))
     Else
         holidaySerialsPtr = 0
     End If
@@ -743,7 +747,7 @@ Public Sub PriceSwapFromSheet(Optional ByVal curvesRangeName As String = "SwapCu
     End If
 
     LogMessage "PriceSwapFromSheet start", logSheet
-    LogMessage "Curves: " & UBound(curves) + 1 & ", Fixings: " & UBound(fixings) + 1 & ", Buckets: " & UBound(buckets) + 1, logSheet
+    LogMessage "Curves: " & UBound(mCurves) + 1 & ", Fixings: " & UBound(mFixings) + 1 & ", Buckets: " & UBound(mBuckets) + 1, logSheet
     LogMessage "SwapCount=" & swapCount, logSheet
     LogMessage "HolidayCount=" & holidayCount, logSheet
 
@@ -770,12 +774,12 @@ Public Sub PriceSwapFromSheet(Optional ByVal curvesRangeName As String = "SwapCu
                               CStr(specValues(i, 3)), _
                               swapSpecRange.Cells(i, 4), _
                               leg1Row, leg2Row, _
-                              swapSpec, swapBuffers
+                              swapSpec, mSwapBuffers
 
         LogMessage "SwapRow=" & i & ", SwapType=" & specValues(i, 1) & ", DiscountCurveId=" & specValues(i, 2) & ", ValuationCurveId=" & specValues(i, 3) & ", ValuationDate=" & specValues(i, 4), logSheet
 
-        npv = PriceSwapAndBucketsPtr(swapSpec, curves(0), UBound(curves) + 1, fixings(0), UBound(fixings) + 1, _
-                                     buckets(0), UBound(buckets) + 1, holidaySerialsPtr, holidayCount, _
+        npv = PriceSwapAndBucketsPtr(swapSpec, mCurves(0), UBound(mCurves) + 1, mFixings(0), UBound(mFixings) + 1, _
+                                     mBuckets(0), UBound(mBuckets) + 1, holidaySerialsPtr, holidayCount, _
                                      outPillarSerials(0), outDeltas(0), maxBuckets, usedBuckets)
 
         npvCell.Value2 = npv
