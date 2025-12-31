@@ -172,7 +172,12 @@ static bool fillHolidayDates(const double *holidaySerials,
 //     1900-date system). Bucketed deltas are returned as parallel arrays of
 //     pillar serials and deltas per swap.
 
+// VBA UDTs are 4-byte packed on x86 and 8-byte aligned on x64 (default MSVC).
+#if defined(_WIN64)
+#pragma pack(push, 8)
+#else
 #pragma pack(push, 4)
+#endif
 struct VBACurveInput
 {
     const wchar_t *id;
@@ -233,28 +238,30 @@ static_assert(sizeof(wchar_t) == 2,
               "VBA strings are UTF-16 (wchar_t must be 2 bytes)");
 
 #if defined(_WIN64)
+// VBA x64 UDTs are 8-byte aligned, so pointer + double fields shift offsets
+// (e.g., discountCurveId in VBASwapSpec starts at 184).
 static_assert(sizeof(VBACurveInput) == 40, "VBACurveInput size mismatch (x64)");
 static_assert(offsetof(VBACurveInput, pillarCount) == 32, "VBACurveInput.pillarCount offset mismatch (x64)");
 static_assert(offsetof(VBACurveInput, dayCountCode) == 36, "VBACurveInput.dayCountCode offset mismatch (x64)");
 
-static_assert(sizeof(VBAFixingInput) == 28, "VBAFixingInput size mismatch (x64)");
+static_assert(sizeof(VBAFixingInput) == 32, "VBAFixingInput size mismatch (x64)");
 static_assert(offsetof(VBAFixingInput, fixingCount) == 24, "VBAFixingInput.fixingCount offset mismatch (x64)");
 
-static_assert(sizeof(VBABucketConfig) == 28, "VBABucketConfig size mismatch (x64)");
+static_assert(sizeof(VBABucketConfig) == 32, "VBABucketConfig size mismatch (x64)");
 static_assert(offsetof(VBABucketConfig, tenorCount) == 16, "VBABucketConfig.tenorCount offset mismatch (x64)");
-static_assert(offsetof(VBABucketConfig, bumpSize) == 20, "VBABucketConfig.bumpSize offset mismatch (x64)");
+static_assert(offsetof(VBABucketConfig, bumpSize) == 24, "VBABucketConfig.bumpSize offset mismatch (x64)");
 
-static_assert(sizeof(VBALegSpec) == 76, "VBALegSpec size mismatch (x64)");
+static_assert(sizeof(VBALegSpec) == 88, "VBALegSpec size mismatch (x64)");
 static_assert(offsetof(VBALegSpec, startDateSerial) == 16, "VBALegSpec.startDateSerial offset mismatch (x64)");
-static_assert(offsetof(VBALegSpec, fixedRate) == 44, "VBALegSpec.fixedRate offset mismatch (x64)");
-static_assert(offsetof(VBALegSpec, indexName) == 52, "VBALegSpec.indexName offset mismatch (x64)");
-static_assert(offsetof(VBALegSpec, spread) == 64, "VBALegSpec.spread offset mismatch (x64)");
-static_assert(offsetof(VBALegSpec, isCompounded) == 72, "VBALegSpec.isCompounded offset mismatch (x64)");
+static_assert(offsetof(VBALegSpec, fixedRate) == 48, "VBALegSpec.fixedRate offset mismatch (x64)");
+static_assert(offsetof(VBALegSpec, indexName) == 56, "VBALegSpec.indexName offset mismatch (x64)");
+static_assert(offsetof(VBALegSpec, spread) == 72, "VBALegSpec.spread offset mismatch (x64)");
+static_assert(offsetof(VBALegSpec, isCompounded) == 80, "VBALegSpec.isCompounded offset mismatch (x64)");
 
-static_assert(sizeof(VBASwapSpec) == 180, "VBASwapSpec size mismatch (x64)");
-static_assert(offsetof(VBASwapSpec, discountCurveId) == 156,
+static_assert(sizeof(VBASwapSpec) == 208, "VBASwapSpec size mismatch (x64)");
+static_assert(offsetof(VBASwapSpec, discountCurveId) == 184,
               "VBASwapSpec.discountCurveId offset mismatch (x64)");
-static_assert(offsetof(VBASwapSpec, valuationDateSerial) == 172,
+static_assert(offsetof(VBASwapSpec, valuationDateSerial) == 200,
               "VBASwapSpec.valuationDateSerial offset mismatch (x64)");
 #else
 static_assert(sizeof(VBACurveInput) == 24, "VBACurveInput size mismatch (x86)");
