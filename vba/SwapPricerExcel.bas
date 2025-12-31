@@ -65,7 +65,6 @@ Public Type CurveBuffers
     pillarSerials() As Double
     discountRates() As Double
     tenorStrings() As String
-    tenorUtf16() As Variant
     tenorPtrs() As LongPtr
 End Type
 
@@ -80,7 +79,6 @@ Public Type BucketBuffers
     curveId As String
     curveIdUtf16() As Byte
     tenorStrings() As String
-    tenorUtf16() As Variant
     tenorPtrs() As LongPtr
 End Type
 
@@ -229,18 +227,15 @@ Private Sub RangeToStringArray(ByVal source As Range, ByRef output() As String)
 End Sub
 
 Private Sub BuildUtf16StringPointers(ByRef strings() As String, _
-                                     ByRef utf16Buffers() As Variant, _
                                      ByRef ptrs() As LongPtr)
     Dim i As Long
     Dim n As Long
 
     n = UBound(strings) - LBound(strings) + 1
-    ReDim utf16Buffers(0 To n - 1)
     ReDim ptrs(0 To n - 1)
 
     For i = 0 To n - 1
-        utf16Buffers(i) = StringToUtf16Buffer(strings(i))
-        ptrs(i) = VarPtr(utf16Buffers(i)(0))
+        ptrs(i) = StrPtr(strings(i))
     Next i
 End Sub
 
@@ -385,7 +380,7 @@ Private Sub LoadCurvesFromTable(ByVal curveTable As Range, _
     For Each key In dict.Keys
         idx = dict(key)
         buffers(idx).curveIdUtf16 = StringToUtf16Buffer(buffers(idx).curveId)
-        BuildUtf16StringPointers buffers(idx).tenorStrings, buffers(idx).tenorUtf16, buffers(idx).tenorPtrs
+        BuildUtf16StringPointers buffers(idx).tenorStrings, buffers(idx).tenorPtrs
         curves(idx).id = VarPtr(buffers(idx).curveIdUtf16(0))
         curves(idx).pillarSerials = VarPtr(buffers(idx).pillarSerials(0))
         curves(idx).discountRates = VarPtr(buffers(idx).discountRates(0))
@@ -542,7 +537,7 @@ Private Sub LoadBucketsFromTable(ByVal bucketTable As Range, _
     For Each key In dict.Keys
         idx = dict(key)
         buffers(idx).curveIdUtf16 = StringToUtf16Buffer(buffers(idx).curveId)
-        BuildUtf16StringPointers buffers(idx).tenorStrings, buffers(idx).tenorUtf16, buffers(idx).tenorPtrs
+        BuildUtf16StringPointers buffers(idx).tenorStrings, buffers(idx).tenorPtrs
         buckets(idx).curveId = VarPtr(buffers(idx).curveIdUtf16(0))
         buckets(idx).tenorStrings = VarPtr(buffers(idx).tenorPtrs(0))
         buckets(idx).tenorCount = UBound(buffers(idx).tenorStrings) + 1
@@ -570,7 +565,7 @@ Public Sub LoadCurveInputFromSheet(ByVal curveId As String, _
     RangeToDoubleArray pillarSerialsRange, buffers.pillarSerials
     RangeToDoubleArray discountRatesRange, buffers.discountRates
     RangeToStringArray tenorsRange, buffers.tenorStrings
-    BuildUtf16StringPointers buffers.tenorStrings, buffers.tenorUtf16, buffers.tenorPtrs
+    BuildUtf16StringPointers buffers.tenorStrings, buffers.tenorPtrs
 
     buffers.curveId = curveId
     buffers.curveIdUtf16 = StringToUtf16Buffer(buffers.curveId)
@@ -608,7 +603,7 @@ Public Sub LoadBucketConfigFromSheet(ByVal curveId As String, _
                                      ByRef bucket As VBABucketConfig, _
                                      ByRef buffers As BucketBuffers)
     RangeToStringArray tenorRange, buffers.tenorStrings
-    BuildUtf16StringPointers buffers.tenorStrings, buffers.tenorUtf16, buffers.tenorPtrs
+    BuildUtf16StringPointers buffers.tenorStrings, buffers.tenorPtrs
 
     buffers.curveId = curveId
     buffers.curveIdUtf16 = StringToUtf16Buffer(buffers.curveId)
@@ -737,7 +732,7 @@ Public Sub PriceSwapFromSheet(Optional ByVal curvesRangeName As String = "SwapCu
     LoadCurvesFromTable curveTable, mCurves, mCurveBuffers
     LoadFixingsFromTable fixingTable, mFixings, mFixingBuffers
     LoadBucketsFromTable bucketTable, mBuckets, mBucketBuffers
-    ' Do not modify mCurveBuffers/mFixingBuffers/mBucketBuffers after UTF-16 buffers are built until DLL calls complete.
+    ' Do not modify mCurveBuffers/mFixingBuffers/mBucketBuffers after string pointers are built until DLL calls complete.
 
     If swapSpecRange.Columns.Count < 4 Or swapSpecRange.Rows.Count < 1 Then
         Err.Raise vbObjectError + 1111, , "Swap spec range must have 4 columns: SwapType, DiscountCurveId, ValuationCurveId, ValuationDate"
