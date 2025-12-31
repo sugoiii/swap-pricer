@@ -101,6 +101,14 @@ End Type
          ByRef holidaySerials As Double, ByVal holidayCount As Long, _
          ByRef outPillarSerials As Double, ByRef outDeltas As Double, _
          ByVal maxBuckets As Long, ByRef outUsedBuckets As Long) As Double
+    Public Declare PtrSafe Function IRS_PRICE_AND_BUCKETS_PTR Lib SWAP_PRICER_DLL Alias "IRS_PRICE_AND_BUCKETS" _
+        (ByRef swapSpec As VBASwapSpec, _
+         ByRef curveInputs As VBACurveInput, ByVal curveCount As Long, _
+         ByRef fixingInputs As VBAFixingInput, ByVal fixingCount As Long, _
+         ByRef bucketInputs As VBABucketConfig, ByVal bucketCount As Long, _
+         ByVal holidaySerials As LongPtr, ByVal holidayCount As Long, _
+         ByRef outPillarSerials As Double, ByRef outDeltas As Double, _
+         ByVal maxBuckets As Long, ByRef outUsedBuckets As Long) As Double
     Public Declare PtrSafe Function IRS_LAST_ERROR Lib SWAP_PRICER_DLL () As LongPtr
     Public Declare PtrSafe Function IRS_IS_NAN Lib SWAP_PRICER_DLL (ByVal value As Double) As Long
     Public Declare PtrSafe Sub IRS_SET_DEBUG_MODE Lib SWAP_PRICER_DLL (ByVal enabled As Long)
@@ -115,6 +123,14 @@ End Type
          ByRef fixingInputs As VBAFixingInput, ByVal fixingCount As Long, _
          ByRef bucketInputs As VBABucketConfig, ByVal bucketCount As Long, _
          ByRef holidaySerials As Double, ByVal holidayCount As Long, _
+         ByRef outPillarSerials As Double, ByRef outDeltas As Double, _
+         ByVal maxBuckets As Long, ByRef outUsedBuckets As Long) As Double
+    Public Declare Function IRS_PRICE_AND_BUCKETS_PTR Lib SWAP_PRICER_DLL Alias "IRS_PRICE_AND_BUCKETS" _
+        (ByRef swapSpec As VBASwapSpec, _
+         ByRef curveInputs As VBACurveInput, ByVal curveCount As Long, _
+         ByRef fixingInputs As VBAFixingInput, ByVal fixingCount As Long, _
+         ByRef bucketInputs As VBABucketConfig, ByVal bucketCount As Long, _
+         ByVal holidaySerials As LongPtr, ByVal holidayCount As Long, _
          ByRef outPillarSerials As Double, ByRef outDeltas As Double, _
          ByVal maxBuckets As Long, ByRef outUsedBuckets As Long) As Double
     Public Declare Function IRS_LAST_ERROR Lib SWAP_PRICER_DLL () As LongPtr
@@ -635,7 +651,7 @@ Public Sub PriceSwapFromSheet(Optional ByVal curvesRangeName As String = "SwapCu
     Dim swapBuffers As SwapBuffers
     Dim holidaySerials() As Double
     Dim holidayCount As Long
-    Dim holidayDummy As Double
+    Dim holidaySerialsPtr As LongPtr
     Dim outPillarSerials() As Double
     Dim outDeltas() As Double
     Dim usedBuckets As Long
@@ -716,6 +732,11 @@ Public Sub PriceSwapFromSheet(Optional ByVal curvesRangeName As String = "SwapCu
             holidayCount = holidaysRange.Count
         End If
     End If
+    If holidayCount > 0 Then
+        holidaySerialsPtr = VarPtr(holidaySerials(0))
+    Else
+        holidaySerialsPtr = 0
+    End If
 
     If enableDebug Then
         SetDebugMode True
@@ -753,15 +774,9 @@ Public Sub PriceSwapFromSheet(Optional ByVal curvesRangeName As String = "SwapCu
 
         LogMessage "SwapRow=" & i & ", SwapType=" & specValues(i, 1) & ", DiscountCurveId=" & specValues(i, 2) & ", ValuationCurveId=" & specValues(i, 3) & ", ValuationDate=" & specValues(i, 4), logSheet
 
-        If holidayCount > 0 Then
-            npv = PriceSwapAndBuckets(swapSpec, curves(0), UBound(curves) + 1, fixings(0), UBound(fixings) + 1, _
-                                      buckets(0), UBound(buckets) + 1, holidaySerials(0), holidayCount, _
-                                      outPillarSerials(0), outDeltas(0), maxBuckets, usedBuckets)
-        Else
-            npv = PriceSwapAndBuckets(swapSpec, curves(0), UBound(curves) + 1, fixings(0), UBound(fixings) + 1, _
-                                      buckets(0), UBound(buckets) + 1, holidayDummy, 0, _
-                                      outPillarSerials(0), outDeltas(0), maxBuckets, usedBuckets)
-        End If
+        npv = PriceSwapAndBucketsPtr(swapSpec, curves(0), UBound(curves) + 1, fixings(0), UBound(fixings) + 1, _
+                                     buckets(0), UBound(buckets) + 1, holidaySerialsPtr, holidayCount, _
+                                     outPillarSerials(0), outDeltas(0), maxBuckets, usedBuckets)
 
         npvCell.Value2 = npv
 
@@ -818,6 +833,34 @@ Public Function PriceSwapAndBuckets(ByRef swapSpec As VBASwapSpec, _
     End If
 
     PriceSwapAndBuckets = result
+End Function
+
+Public Function PriceSwapAndBucketsPtr(ByRef swapSpec As VBASwapSpec, _
+                                       ByRef curveInputs As VBACurveInput, ByVal curveCount As Long, _
+                                       ByRef fixingInputs As VBAFixingInput, ByVal fixingCount As Long, _
+                                       ByRef bucketInputs As VBABucketConfig, ByVal bucketCount As Long, _
+                                       ByVal holidaySerialsPtr As LongPtr, ByVal holidayCount As Long, _
+                                       ByRef outPillarSerials As Double, ByRef outDeltas As Double, _
+                                       ByVal maxBuckets As Long, ByRef outUsedBuckets As Long) As Double
+    Dim result As Double
+    Dim errorPtr As LongPtr
+    Dim errorMessage As String
+
+    result = IRS_PRICE_AND_BUCKETS_PTR(swapSpec, curveInputs, curveCount, fixingInputs, fixingCount, _
+                                       bucketInputs, bucketCount, holidaySerialsPtr, holidayCount, _
+                                       outPillarSerials, outDeltas, maxBuckets, outUsedBuckets)
+
+    errorPtr = IRS_LAST_ERROR()
+    errorMessage = PtrToStringW(errorPtr)
+    If Len(errorMessage) > 0 Then
+        Err.Raise vbObjectError + 2000, , errorMessage
+    End If
+
+    If IRS_IS_NAN(result) <> 0 Then
+        Err.Raise vbObjectError + 2000, , "IRS_PRICE_AND_BUCKETS returned NaN without error"
+    End If
+
+    PriceSwapAndBucketsPtr = result
 End Function
 
 Public Sub SetDebugMode(ByVal enabled As Boolean, Optional ByVal logPath As String = "")

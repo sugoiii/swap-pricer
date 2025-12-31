@@ -892,9 +892,12 @@ static bool buildPricingContext(double valuationDateSerial,
     }
 
     std::vector<Date> holidays;
-    if (!fillHolidayDates(holidaySerials, holidayCount, holidays, error))
+    if (holidayCount > 0)
     {
-        return false;
+        if (!fillHolidayDates(holidaySerials, holidayCount, holidays, error))
+        {
+            return false;
+        }
     }
     ctx.calendar = buildCalendar(holidays);
     ctx.valuationDate = ctx.calendar.adjust(fromExcelSerial(valuationDateSerial));
@@ -1097,16 +1100,23 @@ extern "C" __declspec(dllexport) double __stdcall IRS_PRICE_AND_BUCKETS(
             return failAndReturnNaN(error, outPillarSerials, outDeltas, maxBuckets, outUsedBuckets);
         }
 
+        const double *safeHolidaySerials = holidayCount > 0 ? holidaySerials : nullptr;
+        int safeHolidayCount = holidayCount > 0 ? holidayCount : 0;
+        const VBAFixingInput *safeFixingInputs = fixingCount > 0 ? fixingInputs : nullptr;
+        int safeFixingCount = fixingCount > 0 ? fixingCount : 0;
+        const VBABucketConfig *safeBucketInputs = bucketCount > 0 ? bucketInputs : nullptr;
+        int safeBucketCount = bucketCount > 0 ? bucketCount : 0;
+
         PricingContext ctx;
         if (!buildPricingContext(swapSpec->valuationDateSerial,
-                                 holidaySerials,
-                                 holidayCount,
+                                 safeHolidaySerials,
+                                 safeHolidayCount,
                                  curveInputs,
                                  curveCount,
-                                 fixingInputs,
-                                 fixingCount,
-                                 bucketInputs,
-                                 bucketCount,
+                                 safeFixingInputs,
+                                 safeFixingCount,
+                                 safeBucketInputs,
+                                 safeBucketCount,
                                  ctx,
                                  error))
         {
