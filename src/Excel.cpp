@@ -1078,8 +1078,14 @@ static double failAndReturnNaN(const std::string &message,
 }
 
 // ---------------- Exported functions ----------------
+#if defined(_WIN64)
+#define IRS_EXCEL_CALL
+#else
+#define IRS_EXCEL_CALL __stdcall
+#endif
+#define IRS_EXCEL_EXPORT extern "C" __declspec(dllexport)
 
-extern "C" __declspec(dllexport) double __stdcall IRS_PRICE_AND_BUCKETS(
+IRS_EXCEL_EXPORT double IRS_EXCEL_CALL IRS_PRICE_AND_BUCKETS(
     const VBASwapSpec *swapSpec,
     const VBACurveInput *curveInputs,
     int curveCount,
@@ -1161,22 +1167,22 @@ extern "C" __declspec(dllexport) double __stdcall IRS_PRICE_AND_BUCKETS(
     }
 }
 
-extern "C" __declspec(dllexport) const wchar_t *__stdcall IRS_LAST_ERROR()
+IRS_EXCEL_EXPORT const wchar_t *IRS_EXCEL_CALL IRS_LAST_ERROR()
 {
     return lastErrorWide.c_str();
 }
 
-extern "C" __declspec(dllexport) int __stdcall IRS_IS_NAN(double value)
+IRS_EXCEL_EXPORT int IRS_EXCEL_CALL IRS_IS_NAN(double value)
 {
     return std::isnan(value) ? 1 : 0;
 }
 
-extern "C" __declspec(dllexport) void __stdcall IRS_SET_DEBUG_MODE(int enabled)
+IRS_EXCEL_EXPORT void IRS_EXCEL_CALL IRS_SET_DEBUG_MODE(int enabled)
 {
     debugEnabled = enabled != 0;
 }
 
-extern "C" __declspec(dllexport) void __stdcall IRS_SET_DEBUG_LOG_PATH(const wchar_t *path)
+IRS_EXCEL_EXPORT void IRS_EXCEL_CALL IRS_SET_DEBUG_LOG_PATH(const wchar_t *path)
 {
     std::string converted;
     std::string conversionError;
@@ -1187,7 +1193,7 @@ extern "C" __declspec(dllexport) void __stdcall IRS_SET_DEBUG_LOG_PATH(const wch
     }
 }
 
-extern "C" __declspec(dllexport) void __stdcall IRS_PRICE_AND_BUCKETS_BATCH(
+IRS_EXCEL_EXPORT void IRS_EXCEL_CALL IRS_PRICE_AND_BUCKETS_BATCH(
     const VBASwapSpec *swapSpecs,
     int swapCount,
     const VBACurveInput *curveInputs,

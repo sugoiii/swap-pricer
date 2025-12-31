@@ -21,6 +21,9 @@ target_link_libraries(irs_test PRIVATE irs_core)
 
 # Excel DLL only on Windows
 if (WIN32)
-    add_library(irs_excel SHARED ExcelBridge.cpp)
+    add_library(irs_excel SHARED src/Excel.cpp)
     target_link_libraries(irs_excel PRIVATE irs_core)
+    if (CMAKE_SIZEOF_VOID_P EQUAL 4)
+        target_sources(irs_excel PRIVATE src/irs_excel.def)
+    endif()
 endif()
