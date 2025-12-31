@@ -336,6 +336,9 @@ Private Sub LoadCurvesFromTable(ByVal curveTable As Range, _
     ReDim positions(0 To dict.Count - 1)
 
     For Each key In dict.Keys
+        If CLng(counts(key)) <= 0 Then
+            Err.Raise vbObjectError + 1116, , "Curve " & CStr(key) & " has no pillars"
+        End If
         idx = dict(key)
         buffers(idx).curveId = CStr(key)
         ReDim buffers(idx).pillarSerials(0 To counts(key) - 1)
@@ -413,6 +416,9 @@ Private Sub LoadFixingsFromTable(ByVal fixingTable As Range, _
     ReDim positions(0 To dict.Count - 1)
 
     For Each key In dict.Keys
+        If CLng(counts(key)) <= 0 Then
+            Err.Raise vbObjectError + 1117, , "Fixing index " & CStr(key) & " has no rows"
+        End If
         idx = dict(key)
         buffers(idx).indexName = CStr(key)
         ReDim buffers(idx).fixingDates(0 To counts(key) - 1)
@@ -489,6 +495,9 @@ Private Sub LoadBucketsFromTable(ByVal bucketTable As Range, _
     ReDim positions(0 To dict.Count - 1)
 
     For Each key In dict.Keys
+        If CLng(counts(key)) <= 0 Then
+            Err.Raise vbObjectError + 1118, , "Bucket curve " & CStr(key) & " has no tenors"
+        End If
         idx = dict(key)
         buffers(idx).curveId = CStr(key)
         ReDim buffers(idx).tenorStrings(0 To counts(key) - 1)
