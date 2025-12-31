@@ -1,6 +1,6 @@
 #include "Pricer.hpp"
 #include <ql/time/calendars/southkorea.hpp>
-#include <ql/time/calendars/target.hpp>
+#include <ql/time/calendars/weekendsonly.hpp>
 #include <ql/time/daycounters/actual360.hpp>
 #include <ql/indexes/iborindex.hpp>
 #include <ql/currencies/asia.hpp>
@@ -26,15 +26,12 @@ namespace IRS
             return ctx.calendar;
         }
 
-        // Extend LATER ->
-
-        // TODO - SouthKorea가 아닌 실제 휴일 정보 받아서 캘린더 만들기.
         if ((indexName == "KOFR") || (indexName == "CD"))
         {
             return SouthKorea(SouthKorea::Settlement);
         };
 
-        return TARGET();
+        return WeekendsOnly();
     }
 
     DayCounter IRSwapPricer::mapDayCount(DayCount dc) const
@@ -136,8 +133,8 @@ namespace IRS
             // TODO - 캘린더 정보 제대로 넣어야함.
             auto index = boost::shared_ptr<IborIndex>(
                 new QuantLib::IborIndex(
-                    "CD91", 3 * QuantLib::Months, 2, QuantLib::KRWCurrency(),
-                    TARGET(), QuantLib::ModifiedFollowing, false, QuantLib::Actual365Fixed(), fwdCurve));
+                    "CD", 3 * QuantLib::Months, 2, QuantLib::KRWCurrency(),
+                    cal, QuantLib::ModifiedFollowing, false, QuantLib::Actual365Fixed(), fwdCurve));
 
             applyIborFixings(floatSpec.indexName, ctx, index);
             return index;

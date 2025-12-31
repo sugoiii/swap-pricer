@@ -5,7 +5,7 @@
 #include <ql/termstructures/yield/piecewiseyieldcurve.hpp>
 #include <ql/termstructures/yield/zerocurve.hpp>
 #include <ql/math/interpolations/linearinterpolation.hpp>
-#include <ql/time/calendars/target.hpp>
+#include <ql/time/calendars/weekendsonly.hpp>
 #include <ql/termstructures/yield/ratehelpers.hpp>
 #include <ql/termstructures/yield/oisratehelper.hpp>
 #include <ql/currencies/asia.hpp>
@@ -18,7 +18,7 @@ namespace IRS
 
     Calendar buildCalendar(const std::vector<Date> &holidays)
     {
-        Calendar calendar = TARGET();
+        Calendar calendar = WeekendsOnly();
 
         for (const auto &holiday : holidays)
         {

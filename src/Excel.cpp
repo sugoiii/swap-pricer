@@ -13,7 +13,9 @@
 #include <cmath>
 #include <cstddef>
 
-#include <ql/quantlib.hpp>
+#include <ql/utilities/dataparsers.hpp>
+#include <ql/time/daycounters/actual360.hpp>
+#include <ql/time/calendars/weekendsonly.hpp>
 
 #include "SwapTypes.hpp"
 #include "SwapSpec.hpp"
@@ -142,7 +144,7 @@ static bool fillHolidayDates(const double *holidaySerials,
 // ---------------- VBA-facing POD definitions ----------------
 // VBA should marshal arrays using SAFEARRAY/ByRef pointers and fill these
 // plain-old-data structs. All string pointers are expected to remain alive
-// for the duration of the call (null-terminated UTF-16 wchar_t* buffers). Unless otherwise noted, the
+// for the duration of the call (BSTR / UTF-16 wchar_t*). Unless otherwise noted, the
 // "count" fields represent the number of elements in the corresponding array.
 //
 // VBACurveInput:
@@ -387,7 +389,8 @@ static bool convertWideToUtf8(const wchar_t *value,
                               const char *label,
                               std::string &out,
                               std::string &error)
-{
+{   
+
     if (!value || !*value)
     {
         error = std::string(label) + " is missing";
@@ -611,7 +614,6 @@ static bool fillCurveInput(const VBACurveInput &raw,
         out.discountRates.push_back(raw.discountRates[i]);
         out.tenors.push_back(tenor);
     }
-
     return true;
 }
 
@@ -810,6 +812,7 @@ static bool fillSwapSpec(const VBASwapSpec &raw, IRS::IRSwapSpec &out, std::stri
                 << " notional=" << out.leg2.notional
                 << " index=" << out.leg2.floating.indexName;
         logDebugLine(details.str());
+
     }
 
     return true;

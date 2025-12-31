@@ -14,7 +14,6 @@
 #include "MarketData.hpp"
 #include "Pricer.hpp"
 #include <ql/utilities/dataparsers.hpp>
-#include <ql/time/calendars/target.hpp>
 #include <ql/time/daycounters/actual365fixed.hpp>
 #include <iomanip>
 
