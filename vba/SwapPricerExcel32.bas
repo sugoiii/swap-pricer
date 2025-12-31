@@ -1,34 +1,30 @@
-' Supports Excel VBA7 (Office 2010+), 32-bit and 64-bit.
+' Supports Excel/VBA6 32-bit (Excel 2003/2007).
 Option Explicit
 
 ' ====== DLL name/path ======
-#If VBA7 Then
-    Public Const SWAP_PRICER_DLL As String = "C:\path\to\swap_pricer.dll"
-#Else
-    Public Const SWAP_PRICER_DLL As String = "C:\path\to\swap_pricer.dll"
-#End If
+Public Const SWAP_PRICER_DLL As String = "C:\path\to\swap_pricer.dll"
 
 ' ====== Struct definitions (must match C++ POD layout) ======
 
 Public Type VBACurveInput
-    id As LongPtr
-    pillarSerials As LongPtr
-    discountRates As LongPtr
-    tenorStrings As LongPtr
+    id As Long
+    pillarSerials As Long
+    discountRates As Long
+    tenorStrings As Long
     pillarCount As Long
     dayCountCode As Long
 End Type
 
 Public Type VBAFixingInput
-    indexName As LongPtr
-    fixingDateSerials As LongPtr
-    fixingRates As LongPtr
+    indexName As Long
+    fixingDateSerials As Long
+    fixingRates As Long
     fixingCount As Long
 End Type
 
 Public Type VBABucketConfig
-    curveId As LongPtr
-    tenorStrings As LongPtr
+    curveId As Long
+    tenorStrings As Long
     tenorCount As Long
     bumpSize As Double
 End Type
@@ -43,7 +39,7 @@ Public Type VBALegSpec
     dayCountCode As Long
     bdcCode As Long
     fixedRate As Double
-    indexName As LongPtr
+    indexName As Long
     fixingDays As Long
     spread As Double
     isCompounded As Long
@@ -53,8 +49,8 @@ Public Type VBASwapSpec
     swapType As Long
     leg1 As VBALegSpec
     leg2 As VBALegSpec
-    discountCurveId As LongPtr
-    valuationCurveId As LongPtr
+    discountCurveId As Long
+    valuationCurveId As Long
     valuationDateSerial As Double
 End Type
 
@@ -65,7 +61,7 @@ Public Type CurveBuffers
     pillarSerials() As Double
     discountRates() As Double
     tenorStrings() As String
-    tenorPtrs() As LongPtr
+    tenorPtrs() As Long
 End Type
 
 Public Type FixingBuffers
@@ -77,7 +73,7 @@ End Type
 Public Type BucketBuffers
     curveId As String
     tenorStrings() As String
-    tenorPtrs() As LongPtr
+    tenorPtrs() As Long
 End Type
 
 Public Type LegBuffers
@@ -104,31 +100,6 @@ Private mHolidaySerials() As Double
 
 ' ====== DLL import ======
 
-#If VBA7 Then
-    Public Declare PtrSafe Function IRS_PRICE_AND_BUCKETS Lib SWAP_PRICER_DLL _
-        (ByRef swapSpec As VBASwapSpec, _
-         ByRef curveInputs As VBACurveInput, ByVal curveCount As Long, _
-         ByRef fixingInputs As VBAFixingInput, ByVal fixingCount As Long, _
-         ByRef bucketInputs As VBABucketConfig, ByVal bucketCount As Long, _
-         ByRef holidaySerials As Double, ByVal holidayCount As Long, _
-         ByRef outPillarSerials As Double, ByRef outDeltas As Double, _
-         ByVal maxBuckets As Long, ByRef outUsedBuckets As Long) As Double
-    Public Declare PtrSafe Function IRS_PRICE_AND_BUCKETS_PTR Lib SWAP_PRICER_DLL Alias "IRS_PRICE_AND_BUCKETS" _
-        (ByRef swapSpec As VBASwapSpec, _
-         ByRef curveInputs As VBACurveInput, ByVal curveCount As Long, _
-         ByRef fixingInputs As VBAFixingInput, ByVal fixingCount As Long, _
-         ByRef bucketInputs As VBABucketConfig, ByVal bucketCount As Long, _
-         ByVal holidaySerials As LongPtr, ByVal holidayCount As Long, _
-         ByRef outPillarSerials As Double, ByRef outDeltas As Double, _
-         ByVal maxBuckets As Long, ByRef outUsedBuckets As Long) As Double
-    Public Declare PtrSafe Function IRS_LAST_ERROR Lib SWAP_PRICER_DLL () As LongPtr
-    Public Declare PtrSafe Function IRS_IS_NAN Lib SWAP_PRICER_DLL (ByVal value As Double) As Long
-    Public Declare PtrSafe Sub IRS_SET_DEBUG_MODE Lib SWAP_PRICER_DLL (ByVal enabled As Long)
-    Public Declare PtrSafe Sub IRS_SET_DEBUG_LOG_PATH Lib SWAP_PRICER_DLL (ByVal path As LongPtr)
-    Private Declare PtrSafe Function lstrlenW Lib "kernel32" (ByVal lpString As LongPtr) As Long
-    Private Declare PtrSafe Sub CopyMemory Lib "kernel32" Alias "RtlMoveMemory" _
-        (ByVal dest As LongPtr, ByVal src As LongPtr, ByVal cb As LongPtr)
-#Else
     Public Declare Function IRS_PRICE_AND_BUCKETS Lib SWAP_PRICER_DLL _
         (ByRef swapSpec As VBASwapSpec, _
          ByRef curveInputs As VBACurveInput, ByVal curveCount As Long, _
@@ -142,17 +113,16 @@ Private mHolidaySerials() As Double
          ByRef curveInputs As VBACurveInput, ByVal curveCount As Long, _
          ByRef fixingInputs As VBAFixingInput, ByVal fixingCount As Long, _
          ByRef bucketInputs As VBABucketConfig, ByVal bucketCount As Long, _
-         ByVal holidaySerials As LongPtr, ByVal holidayCount As Long, _
+         ByVal holidaySerials As Long, ByVal holidayCount As Long, _
          ByRef outPillarSerials As Double, ByRef outDeltas As Double, _
          ByVal maxBuckets As Long, ByRef outUsedBuckets As Long) As Double
-    Public Declare Function IRS_LAST_ERROR Lib SWAP_PRICER_DLL () As LongPtr
+    Public Declare Function IRS_LAST_ERROR Lib SWAP_PRICER_DLL () As Long
     Public Declare Function IRS_IS_NAN Lib SWAP_PRICER_DLL (ByVal value As Double) As Long
     Public Declare Sub IRS_SET_DEBUG_MODE Lib SWAP_PRICER_DLL (ByVal enabled As Long)
-    Public Declare Sub IRS_SET_DEBUG_LOG_PATH Lib SWAP_PRICER_DLL (ByVal path As LongPtr)
-    Private Declare Function lstrlenW Lib "kernel32" (ByVal lpString As LongPtr) As Long
+    Public Declare Sub IRS_SET_DEBUG_LOG_PATH Lib SWAP_PRICER_DLL (ByVal path As Long)
+    Private Declare Function lstrlenW Lib "kernel32" (ByVal lpString As Long) As Long
     Private Declare Sub CopyMemory Lib "kernel32" Alias "RtlMoveMemory" _
-        (ByVal dest As LongPtr, ByVal src As LongPtr, ByVal cb As LongPtr)
-#End If
+        (ByVal dest As Long, ByVal src As Long, ByVal cb As Long)
 
 ' ====== Helpers ======
 
@@ -175,7 +145,7 @@ Private Function StringToUtf16Buffer(ByVal value As String) As Byte()
     StringToUtf16Buffer = result
 End Function
 
-Private Function PtrToStringW(ByVal ptr As LongPtr) As String
+Private Function PtrToStringW(ByVal ptr As Long) As String
     Dim length As Long
 
     If ptr = 0 Then
@@ -222,7 +192,7 @@ Private Sub RangeToStringArray(ByVal source As Range, ByRef output() As String)
 End Sub
 
 Private Sub BuildUtf16StringPointers(ByRef strings() As String, _
-                                     ByRef ptrs() As LongPtr)
+                                     ByRef ptrs() As Long)
     Dim i As Long
     Dim n As Long
 
@@ -679,7 +649,7 @@ Public Sub PriceSwapFromSheet(Optional ByVal curvesRangeName As String = "SwapCu
     Dim logSheet As Worksheet
     Dim swapSpec As VBASwapSpec
     Dim holidayCount As Long
-    Dim holidaySerialsPtr As LongPtr
+    Dim holidaySerialsPtr As Long
     Dim outPillarSerials() As Double
     Dim outDeltas() As Double
     Dim usedBuckets As Long
@@ -844,7 +814,7 @@ Public Function PriceSwapAndBuckets(ByRef swapSpec As VBASwapSpec, _
                                     ByRef outPillarSerials As Double, ByRef outDeltas As Double, _
                                     ByVal maxBuckets As Long, ByRef outUsedBuckets As Long) As Double
     Dim result As Double
-    Dim errorPtr As LongPtr
+    Dim errorPtr As Long
     Dim errorMessage As String
 
     result = IRS_PRICE_AND_BUCKETS(swapSpec, curveInputs, curveCount, fixingInputs, fixingCount, _
@@ -868,11 +838,11 @@ Public Function PriceSwapAndBucketsPtr(ByRef swapSpec As VBASwapSpec, _
                                        ByRef curveInputs As VBACurveInput, ByVal curveCount As Long, _
                                        ByRef fixingInputs As VBAFixingInput, ByVal fixingCount As Long, _
                                        ByRef bucketInputs As VBABucketConfig, ByVal bucketCount As Long, _
-                                       ByVal holidaySerialsPtr As LongPtr, ByVal holidayCount As Long, _
+                                       ByVal holidaySerialsPtr As Long, ByVal holidayCount As Long, _
                                        ByRef outPillarSerials As Double, ByRef outDeltas As Double, _
                                        ByVal maxBuckets As Long, ByRef outUsedBuckets As Long) As Double
     Dim result As Double
-    Dim errorPtr As LongPtr
+    Dim errorPtr As Long
     Dim errorMessage As String
 
     result = IRS_PRICE_AND_BUCKETS_PTR(swapSpec, curveInputs, curveCount, fixingInputs, fixingCount, _
