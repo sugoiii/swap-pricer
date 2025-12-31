@@ -142,7 +142,7 @@ static bool fillHolidayDates(const double *holidaySerials,
 // ---------------- VBA-facing POD definitions ----------------
 // VBA should marshal arrays using SAFEARRAY/ByRef pointers and fill these
 // plain-old-data structs. All string pointers are expected to remain alive
-// for the duration of the call (null-terminated UTF-16 wchar_t* buffers). Unless otherwise noted, the
+// for the duration of the call (null-terminated UTF-16 wchar_t* buffers coming from VBA StrPtr/BSTR). Unless otherwise noted, the
 // "count" fields represent the number of elements in the corresponding array.
 //
 // VBACurveInput:

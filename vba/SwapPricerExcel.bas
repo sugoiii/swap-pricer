@@ -61,39 +61,31 @@ End Type
 
 Public Type CurveBuffers
     curveId As String
-    curveIdUtf16() As Byte
     pillarSerials() As Double
     discountRates() As Double
     tenorStrings() As String
-    tenorUtf16() As Variant
     tenorPtrs() As LongPtr
 End Type
 
 Public Type FixingBuffers
     indexName As String
-    indexNameUtf16() As Byte
     fixingDates() As Double
     fixingRates() As Double
 End Type
 
 Public Type BucketBuffers
     curveId As String
-    curveIdUtf16() As Byte
     tenorStrings() As String
-    tenorUtf16() As Variant
     tenorPtrs() As LongPtr
 End Type
 
 Public Type LegBuffers
     indexName As String
-    indexNameUtf16() As Byte
 End Type
 
 Public Type SwapBuffers
     discountCurveId As String
     valuationCurveId As String
-    discountCurveIdUtf16() As Byte
-    valuationCurveIdUtf16() As Byte
     leg1 As LegBuffers
     leg2 As LegBuffers
 End Type
@@ -163,25 +155,6 @@ Private mHolidaySerials() As Double
 
 ' ====== Helpers ======
 
-Private Function StringToUtf16Buffer(ByVal value As String) As Byte()
-    Dim raw() As Byte
-    Dim result() As Byte
-    Dim length As Long
-
-    If Len(value) > 0 Then
-        raw = StrConv(value, vbUnicode)
-        length = UBound(raw) - LBound(raw) + 1
-        ReDim result(0 To length + 1)
-        CopyMemory VarPtr(result(0)), VarPtr(raw(0)), length
-    Else
-        ReDim result(0 To 1)
-    End If
-
-    result(UBound(result) - 1) = 0
-    result(UBound(result)) = 0
-    StringToUtf16Buffer = result
-End Function
-
 Private Function PtrToStringW(ByVal ptr As LongPtr) As String
     Dim length As Long
 
@@ -228,19 +201,16 @@ Private Sub RangeToStringArray(ByVal source As Range, ByRef output() As String)
     Next i
 End Sub
 
-Private Sub BuildUtf16StringPointers(ByRef strings() As String, _
-                                     ByRef utf16Buffers() As Variant, _
-                                     ByRef ptrs() As LongPtr)
+Private Sub BuildStringPointers(ByRef strings() As String, _
+                                ByRef ptrs() As LongPtr)
     Dim i As Long
     Dim n As Long
 
     n = UBound(strings) - LBound(strings) + 1
-    ReDim utf16Buffers(0 To n - 1)
     ReDim ptrs(0 To n - 1)
 
     For i = 0 To n - 1
-        utf16Buffers(i) = StringToUtf16Buffer(strings(i))
-        ptrs(i) = VarPtr(utf16Buffers(i)(0))
+        ptrs(i) = StrPtr(strings(i))
     Next i
 End Sub
 
@@ -384,9 +354,8 @@ Private Sub LoadCurvesFromTable(ByVal curveTable As Range, _
 
     For Each key In dict.Keys
         idx = dict(key)
-        buffers(idx).curveIdUtf16 = StringToUtf16Buffer(buffers(idx).curveId)
-        BuildUtf16StringPointers buffers(idx).tenorStrings, buffers(idx).tenorUtf16, buffers(idx).tenorPtrs
-        curves(idx).id = VarPtr(buffers(idx).curveIdUtf16(0))
+        BuildStringPointers buffers(idx).tenorStrings, buffers(idx).tenorPtrs
+        curves(idx).id = StrPtr(buffers(idx).curveId)
         curves(idx).pillarSerials = VarPtr(buffers(idx).pillarSerials(0))
         curves(idx).discountRates = VarPtr(buffers(idx).discountRates(0))
         curves(idx).tenorStrings = VarPtr(buffers(idx).tenorPtrs(0))
@@ -462,8 +431,7 @@ Private Sub LoadFixingsFromTable(ByVal fixingTable As Range, _
 
     For Each key In dict.Keys
         idx = dict(key)
-        buffers(idx).indexNameUtf16 = StringToUtf16Buffer(buffers(idx).indexName)
-        fixings(idx).indexName = VarPtr(buffers(idx).indexNameUtf16(0))
+        fixings(idx).indexName = StrPtr(buffers(idx).indexName)
         fixings(idx).fixingDateSerials = VarPtr(buffers(idx).fixingDates(0))
         fixings(idx).fixingRates = VarPtr(buffers(idx).fixingRates(0))
         fixings(idx).fixingCount = UBound(buffers(idx).fixingDates) + 1
@@ -541,9 +509,8 @@ Private Sub LoadBucketsFromTable(ByVal bucketTable As Range, _
 
     For Each key In dict.Keys
         idx = dict(key)
-        buffers(idx).curveIdUtf16 = StringToUtf16Buffer(buffers(idx).curveId)
-        BuildUtf16StringPointers buffers(idx).tenorStrings, buffers(idx).tenorUtf16, buffers(idx).tenorPtrs
-        buckets(idx).curveId = VarPtr(buffers(idx).curveIdUtf16(0))
+        BuildStringPointers buffers(idx).tenorStrings, buffers(idx).tenorPtrs
+        buckets(idx).curveId = StrPtr(buffers(idx).curveId)
         buckets(idx).tenorStrings = VarPtr(buffers(idx).tenorPtrs(0))
         buckets(idx).tenorCount = UBound(buffers(idx).tenorStrings) + 1
         buckets(idx).bumpSize = CDbl(bumpSizes(key))
@@ -570,11 +537,10 @@ Public Sub LoadCurveInputFromSheet(ByVal curveId As String, _
     RangeToDoubleArray pillarSerialsRange, buffers.pillarSerials
     RangeToDoubleArray discountRatesRange, buffers.discountRates
     RangeToStringArray tenorsRange, buffers.tenorStrings
-    BuildUtf16StringPointers buffers.tenorStrings, buffers.tenorUtf16, buffers.tenorPtrs
+    BuildStringPointers buffers.tenorStrings, buffers.tenorPtrs
 
     buffers.curveId = curveId
-    buffers.curveIdUtf16 = StringToUtf16Buffer(buffers.curveId)
-    curve.id = VarPtr(buffers.curveIdUtf16(0))
+    curve.id = StrPtr(buffers.curveId)
     curve.pillarSerials = VarPtr(buffers.pillarSerials(0))
     curve.discountRates = VarPtr(buffers.discountRates(0))
     curve.tenorStrings = VarPtr(buffers.tenorPtrs(0))
@@ -595,8 +561,7 @@ Public Sub LoadFixingsFromSheet(ByVal indexName As String, _
     RangeToDoubleArray fixingRatesRange, buffers.fixingRates
 
     buffers.indexName = indexName
-    buffers.indexNameUtf16 = StringToUtf16Buffer(buffers.indexName)
-    fixing.indexName = VarPtr(buffers.indexNameUtf16(0))
+    fixing.indexName = StrPtr(buffers.indexName)
     fixing.fixingDateSerials = VarPtr(buffers.fixingDates(0))
     fixing.fixingRates = VarPtr(buffers.fixingRates(0))
     fixing.fixingCount = fixingDatesRange.Count
@@ -608,11 +573,10 @@ Public Sub LoadBucketConfigFromSheet(ByVal curveId As String, _
                                      ByRef bucket As VBABucketConfig, _
                                      ByRef buffers As BucketBuffers)
     RangeToStringArray tenorRange, buffers.tenorStrings
-    BuildUtf16StringPointers buffers.tenorStrings, buffers.tenorUtf16, buffers.tenorPtrs
+    BuildStringPointers buffers.tenorStrings, buffers.tenorPtrs
 
     buffers.curveId = curveId
-    buffers.curveIdUtf16 = StringToUtf16Buffer(buffers.curveId)
-    bucket.curveId = VarPtr(buffers.curveIdUtf16(0))
+    bucket.curveId = StrPtr(buffers.curveId)
     bucket.tenorStrings = VarPtr(buffers.tenorPtrs(0))
     bucket.tenorCount = tenorRange.Count
     bucket.bumpSize = CDbl(bumpSizeCell.Value)
@@ -641,8 +605,7 @@ Public Sub LoadLegSpecFromRange(ByVal legRange As Range, _
 
     buffers.indexName = CStr(values(1, 10))
     If Len(buffers.indexName) > 0 Then
-        buffers.indexNameUtf16 = StringToUtf16Buffer(buffers.indexName)
-        leg.indexName = VarPtr(buffers.indexNameUtf16(0))
+        leg.indexName = StrPtr(buffers.indexName)
     Else
         leg.indexName = 0
     End If
@@ -664,10 +627,8 @@ Public Sub LoadSwapSpecFromSheet(ByVal swapType As Long, _
     buffers.valuationCurveId = valuationCurveId
 
     swap.swapType = swapType
-    buffers.discountCurveIdUtf16 = StringToUtf16Buffer(buffers.discountCurveId)
-    buffers.valuationCurveIdUtf16 = StringToUtf16Buffer(buffers.valuationCurveId)
-    swap.discountCurveId = VarPtr(buffers.discountCurveIdUtf16(0))
-    swap.valuationCurveId = VarPtr(buffers.valuationCurveIdUtf16(0))
+    swap.discountCurveId = StrPtr(buffers.discountCurveId)
+    swap.valuationCurveId = StrPtr(buffers.valuationCurveId)
     swap.valuationDateSerial = CDbl(valuationDateCell.Value)
 
     LoadLegSpecFromRange leg1Range, swap.leg1, buffers.leg1
@@ -737,7 +698,7 @@ Public Sub PriceSwapFromSheet(Optional ByVal curvesRangeName As String = "SwapCu
     LoadCurvesFromTable curveTable, mCurves, mCurveBuffers
     LoadFixingsFromTable fixingTable, mFixings, mFixingBuffers
     LoadBucketsFromTable bucketTable, mBuckets, mBucketBuffers
-    ' Do not modify mCurveBuffers/mFixingBuffers/mBucketBuffers after UTF-16 buffers are built until DLL calls complete.
+    ' Do not modify mCurveBuffers/mFixingBuffers/mBucketBuffers after string pointers are built until DLL calls complete.
 
     If swapSpecRange.Columns.Count < 4 Or swapSpecRange.Rows.Count < 1 Then
         Err.Raise vbObjectError + 1111, , "Swap spec range must have 4 columns: SwapType, DiscountCurveId, ValuationCurveId, ValuationDate"
@@ -912,11 +873,8 @@ Public Function PriceSwapAndBucketsPtr(ByRef swapSpec As VBASwapSpec, _
 End Function
 
 Public Sub SetDebugMode(ByVal enabled As Boolean, Optional ByVal logPath As String = "")
-    Dim logPathUtf16() As Byte
-
     IRS_SET_DEBUG_MODE IIf(enabled, 1, 0)
     If Len(logPath) > 0 Then
-        logPathUtf16 = StringToUtf16Buffer(logPath)
-        IRS_SET_DEBUG_LOG_PATH VarPtr(logPathUtf16(0))
+        IRS_SET_DEBUG_LOG_PATH StrPtr(logPath)
     End If
 End Sub
