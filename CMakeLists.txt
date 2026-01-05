@@ -10,13 +10,12 @@ add_library(irs_core
     src/MarketData.cpp
 )
 target_include_directories(irs_core PUBLIC
-    ${QuantLib_INCLUDE_DIRS}
     ${CMAKE_CURRENT_SOURCE_DIR}/include
 )
-target_link_libraries(irs_core PUBLIC ${QuantLib_LIBRARIES})
+target_link_libraries(irs_core PUBLIC QuantLib::QuantLib)
 
 # CLI test binary (Linux/Windows)
-add_executable(irs_test TestMain.cpp)
+add_executable(irs_test src/TestLinux.cpp)
 target_link_libraries(irs_test PRIVATE irs_core)
 
 # Excel DLL only on Windows
